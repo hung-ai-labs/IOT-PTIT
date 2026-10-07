@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Đăng nhập — Smart IoT</title>
+  <link rel="stylesheet" href="assets/css/fonts.css">
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+  <main class="auth">
+    <div class="auth__grid" aria-hidden="true"></div>
+    <div class="auth__glow" aria-hidden="true"></div>
+
+    <div class="auth__panel">
+      <div class="auth__brand">
+        <div class="auth__logo" id="authLogo"></div>
+        <h1 class="auth__title">Smart IoT</h1>
+        <p class="auth__tagline">Monitoring &amp; Control System</p>
+      </div>
+
+      <!-- ─── Đăng nhập ─────────────────────────────────── -->
+      <section class="auth__card" id="loginCard">
+        <h2 class="auth__heading">Đăng nhập</h2>
+        <p class="auth__lead">Nhập thông tin để truy cập hệ thống</p>
+
+        <form class="auth__form" id="loginForm" novalidate>
+          <div class="field">
+            <label class="field__label" for="loginEmail">EMAIL</label>
+            <input class="input input--auth" id="loginEmail" name="email" type="email"
+                   placeholder="admin@ptit.edu.vn" autocomplete="email" required>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="loginPassword">MẬT KHẨU</label>
+            <div class="password-wrap">
+              <input class="input input--auth input--auth-password" id="loginPassword" name="password"
+                     type="password" placeholder="••••••" autocomplete="current-password" required>
+              <button type="button" class="password-toggle" id="togglePassword"
+                      aria-label="Hiện mật khẩu">👁️</button>
+            </div>
+          </div>
+
+          <div class="auth__error hidden" id="loginError" role="alert">
+            <span>✕</span><span id="loginErrorText"></span>
+          </div>
+
+          <button type="submit" class="btn btn--primary btn--block" id="loginSubmit">Đăng nhập</button>
+        </form>
+
+        <p class="auth__switch">
+          Bạn chưa có tài khoản?
+          <button type="button" class="link-button" id="goRegister">Đăng ký</button>
+        </p>
+
+        <div class="auth__demo"><strong>Demo: </strong>admin@ptit.edu.vn / 123456</div>
+      </section>
+
+      <!-- ─── Đăng ký ───────────────────────────────────── -->
+      <section class="auth__card hidden" id="registerCard">
+        <h2 class="auth__heading">Đăng ký tài khoản</h2>
+        <p class="auth__lead">Điền thông tin để tạo tài khoản mới</p>
+
+        <form class="auth__form" id="registerForm" novalidate>
+          <div class="field">
+            <label class="field__label" for="regFullName">HỌ VÀ TÊN</label>
+            <input class="input input--auth" id="regFullName" name="fullName" type="text"
+                   placeholder="Nguyễn Xuân Hùng" required>
+          </div>
+          <div class="field">
+            <label class="field__label" for="regEmail">EMAIL</label>
+            <input class="input input--auth" id="regEmail" name="email" type="email"
+                   placeholder="nxhung@student.ptit.edu.vn" autocomplete="email" required>
+          </div>
+          <div class="field">
+            <label class="field__label" for="regPassword">MẬT KHẨU</label>
+            <input class="input input--auth" id="regPassword" name="password" type="password"
+                   placeholder="Ít nhất 6 ký tự" autocomplete="new-password"
+                   minlength="6" maxlength="72" required>
+          </div>
+
+          <div class="auth__error hidden" id="registerError" role="alert">
+            <span>✕</span><span id="registerErrorText"></span>
+          </div>
+          <button type="submit" class="btn btn--primary btn--block" id="registerSubmit">Đăng ký</button>
+        </form>
+
+        <div class="banner banner--success hidden" id="registerSuccess" role="status">
+          <div class="auth__success">
+            <div class="auth__success-icon">✅</div>
+            <div class="auth__success-title">Đăng ký thành công!</div>
+            <div class="auth__success-hint">Đang chuyển về trang đăng nhập...</div>
+          </div>
+        </div>
+
+        <p class="auth__switch">
+          Đã có tài khoản?
+          <button type="button" class="link-button" id="goLogin">Đăng nhập</button>
+        </p>
+      </section>
+
+      <p class="auth__footer">IoT Monitoring &amp; Control System — Nguyễn Xuân Hùng</p>
+    </div>
+  </main>
+
+  <script type="module">
+// auth-page.js — màn hình Đăng nhập (S2) và Đăng ký (S1)
+
+import { icons } from './assets/js/icons.js';
+import { login, register } from './assets/js/api.js';
+import { redirectIfAuthenticated } from './assets/js/auth.js';
+
+if (!redirectIfAuthenticated()) {
+  document.getElementById('authLogo').innerHTML = icons.iot(28);
+
+  const loginCard = document.getElementById('loginCard');
+  const registerCard = document.getElementById('registerCard');
+  const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+
+  const loginError = document.getElementById('loginError');
+  const loginErrorText = document.getElementById('loginErrorText');
+  const registerError = document.getElementById('registerError');
+  const registerErrorText = document.getElementById('registerErrorText');
+
+  const emailInput = document.getElementById('loginEmail');
+  const passwordInput = document.getElementById('loginPassword');
+
+  /* ─── Chuyển qua lại giữa 2 form ───────────────────────── */
+  function showRegister(show) {
+    loginCard.classList.toggle('hidden', show);
+    registerCard.classList.toggle('hidden', !show);
+    document.title = `${show ? 'Đăng ký' : 'Đăng nhập'} — Smart IoT`;
+  }
+  document.getElementById('goRegister').addEventListener('click', () => showRegister(true));
+  document.getElementById('goLogin').addEventListener('click', () => showRegister(false));
+
+  /* ─── Hiện/ẩn mật khẩu ─────────────────────────────────── */
+  const toggleButton = document.getElementById('togglePassword');
+  toggleButton.addEventListener('click', () => {
+    const isText = passwordInput.type === 'text';
+    passwordInput.type = isText ? 'password' : 'text';
+    toggleButton.textContent = isText ? '👁️' : '🙈';
+    toggleButton.setAttribute('aria-label', isText ? 'Hiện mật khẩu' : 'Ẩn mật khẩu');
+  });
+
+  /* ─── Tiện ích ─────────────────────────────────────────── */
+  function setBusy(button, busy, busyLabel, idleLabel) {
+    button.disabled = busy;
+    button.innerHTML = busy ? `<span class="spinner"></span>${busyLabel}` : idleLabel;
+  }
+
+  function showError(box, textNode, message) {
+    textNode.textContent = message;
+    box.classList.remove('hidden');
+  }
+
+  function clearLoginError() {
+    loginError.classList.add('hidden');
+    emailInput.classList.remove('is-error');
+    passwordInput.classList.remove('is-error');
+  }
+
+  /* ─── Đăng nhập ────────────────────────────────────────── */
+  loginForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearLoginError();
+
+    const button = document.getElementById('loginSubmit');
+    setBusy(button, true, 'Đang đăng nhập...', 'Đăng nhập');
+
+    try {
+      await login(emailInput.value.trim(), passwordInput.value);
+      window.location.replace('index.html');
+    } catch (error) {
+      showError(loginError, loginErrorText, error.message);
+      emailInput.classList.add('is-error');
+      passwordInput.classList.add('is-error');
+      setBusy(button, false, '', 'Đăng nhập');
+    }
+  });
+
+  loginForm.addEventListener('input', clearLoginError);
+
+  /* ─── Đăng ký ──────────────────────────────────────────── */
+  registerForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    registerError.classList.add('hidden');
+
+    const button = document.getElementById('registerSubmit');
+    setBusy(button, true, 'Đang đăng ký...', 'Đăng ký');
+
+    const email = document.getElementById('regEmail').value.trim();
+
+    try {
+      await register({
+        fullName: document.getElementById('regFullName').value.trim(),
+        email,
+        password: document.getElementById('regPassword').value,
+      });
+
+      registerForm.classList.add('hidden');
+      document.getElementById('registerSuccess').classList.remove('hidden');
+
+      // Chuyển về đăng nhập và điền sẵn email vừa tạo.
+      setTimeout(() => {
+        registerForm.reset();
+        registerForm.classList.remove('hidden');
+        document.getElementById('registerSuccess').classList.add('hidden');
+        setBusy(button, false, '', 'Đăng ký');
+        showRegister(false);
+        emailInput.value = email;
+        passwordInput.focus();
+      }, 1500);
+    } catch (error) {
+      showError(registerError, registerErrorText, error.message);
+      setBusy(button, false, '', 'Đăng ký');
+    }
+  });
+
+  registerForm.addEventListener('input', () => registerError.classList.add('hidden'));
+}
+  </script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+# Hạ tầng cho môi trường phát triển: PostgreSQL + Mosquitto MQTT Broker
+#   docker compose -f infra/docker-compose.yml up -d
+#   docker compose -f infra/docker-compose.yml down       (giữ dữ liệu)
+#   docker compose -f infra/docker-compose.yml down -v    (xoá luôn dữ liệu)
+
+name: iot-ptit
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: iot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: iot
+      POSTGRES_PASSWORD: iot_password
+      POSTGRES_DB: iot_db
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "5433:5432"          # 5433 để không đụng PostgreSQL cài sẵn trên máy
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iot -d iot_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: iot-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"          # MQTT
+      - "9001:9001"          # MQTT over WebSocket (dự phòng)
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_log:

@@ -1,0 +1,118 @@
+/* ===========================================================================
+   tokens.css — Design tokens trích từ Figma (Smart IoT — Monitoring & Control)
+   ĐÂY LÀ ĐIỂM NỐI DUY NHẤT VỚI FIGMA. Đổi giao diện chỉ cần sửa file này.
+   =========================================================================== */
+:root {
+  /* ── Nền & bề mặt ─────────────────────────────────────────── */
+  --color-bg:              #F1F5F9;   /* nền trang */
+  --color-sidebar:         #FFFFFF;   /* sidebar, drawer */
+  --color-card:            #FFFFFF;   /* card, modal, toast */
+  --color-surface:         #F8FAFC;   /* input, hàng bảng lẻ, card lồng */
+  --color-surface-alt:     #F1F5F9;   /* icon thiết bị khi OFF */
+  --color-border:          #E2E8F0;   /* viền chuẩn */
+  --color-border-soft:     #E2E8F099; /* viền mảnh giữa các hàng */
+  --color-accent-soft:     #DBEAFE;   /* nền mục nav đang chọn, avatar */
+  --color-switch-track:    #CBD5E1;   /* rãnh công tắc khi OFF */
+
+  /* ── Chữ ──────────────────────────────────────────────────── */
+  --color-text:            #0F172A;
+  --color-text-secondary:  #475569;
+  --color-text-muted:      #64748B;
+
+  /* ── Màu ngữ nghĩa ────────────────────────────────────────── */
+  /* Dùng tông 600/700 để đủ tương phản trên nền sáng (WCAG AA). */
+  --color-figma:           #8066D6;
+  --color-resource-api:    #408C70;
+  --color-resource-docs:   #557D37;
+  --alpha-resource-docs:   #F1FADB;
+  --color-primary:         #2563EB;
+  --color-primary-hover:   #1D4ED8;
+  --color-on-primary:      #FFFFFF;
+  --color-success:         #15803D;
+  --color-warning:         #B45309;
+  --color-danger:          #DC2626;
+  --color-info:            #2563EB;
+
+  /* ── Màu theo loại cảm biến ───────────────────────────────── */
+  --color-temp:            #EA580C;
+  --color-humidity:        #0284C7;
+  --color-light:           #A16207;
+
+  /* ── Nền mờ (alpha) ───────────────────────────────────────── */
+  --alpha-success-bg:      #22C55E20;
+  --alpha-danger-bg:       #EF444420;
+  --alpha-warning-bg:      #F59E0B20;
+  --alpha-info-bg:         #3B82F620;
+  --alpha-success-banner:  #22C55E15;
+  --alpha-danger-banner:   #EF444415;
+  --alpha-warning-banner:  #F59E0B15;
+  --alpha-success-line:    #22C55E40;
+  --alpha-danger-line:     #EF444440;
+  --alpha-warning-line:    #F59E0B40;
+  --alpha-primary-line:    #3B82F640;
+  --alpha-primary-glow:    #3B82F620;
+  --alpha-row-hover:       #2563EB0D;
+  --alpha-temp-bg:         #F9731610;
+  --alpha-humidity-bg:     #38BDF810;
+  --alpha-light-bg:        #FBBF2410;
+
+  /* ── Typography ───────────────────────────────────────────── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-2xs:  10px;
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 13px;
+  --text-md:   14px;
+  --text-lg:   15px;
+  --text-xl:   16px;
+  --text-2xl:  18px;
+  --text-3xl:  22px;
+  --text-4xl:  26px;
+  --text-stat: 36px;
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semibold:600;
+  --weight-bold:    700;
+
+  --tracking-wide:  0.04em;
+  --tracking-tight: -0.02em;
+
+  /* ── Spacing (thang 4px) ──────────────────────────────────── */
+  --space-1: 4px;   --space-2: 6px;   --space-3: 8px;   --space-4: 10px;
+  --space-5: 12px;  --space-6: 14px;  --space-7: 16px;  --space-8: 20px;
+  --space-9: 24px;  --space-10: 28px; --space-11: 32px; --space-12: 36px;
+
+  /* ── Bo góc ───────────────────────────────────────────────── */
+  --radius-xs:  5px;
+  --radius-sm:  7px;
+  --radius-md:  8px;
+  --radius-lg:  10px;
+  --radius-xl:  12px;
+  --radius-2xl: 14px;
+  --radius-3xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── Đổ bóng ──────────────────────────────────────────────── */
+  --shadow-card:   0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-toast:  0 4px 20px rgba(15, 23, 42, 0.14);
+  --shadow-menu:   0 -8px 24px rgba(15, 23, 42, 0.12);
+  --shadow-glow:   0 0 20px var(--alpha-primary-glow);
+  --overlay:       rgba(15, 23, 42, 0.4);
+  --overlay-strong:rgba(15, 23, 42, 0.5);
+
+  /* ── Layout ───────────────────────────────────────────────── */
+  --app-max-width:  1680px;
+  --color-page-gutter: #F4F6F5;
+  --chart-height:   280px;
+  --sidebar-width:  240px;
+  --header-height:  73px;
+  --drawer-width:   360px;
+  --page-padding:   24px;
+
+  /* ── Chuyển động ──────────────────────────────────────────── */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+}

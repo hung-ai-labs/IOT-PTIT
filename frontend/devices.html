@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Điều khiển thiết bị — Smart IoT</title>
+  <link rel="stylesheet" href="assets/css/fonts.css">
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+  <script type="module">
+// devices.js — S5 Điều khiển thiết bị (SRS Hình 3.5, 3.9, 3.10)
+//
+// Luồng một lệnh (SRS §2.10, §4.5.7):
+//   bấm công tắc → hộp thoại xác nhận → POST trả 202 Pending
+//   → hiển thị các bước xử lý → nhận WebSocket (hoặc poll dự phòng) tới kết quả cuối
+//   → cập nhật công tắc và hiện thông báo
+
+import { SHOW_IOT_DATA } from './assets/js/config.js';
+import { requireAuth } from './assets/js/auth.js';
+import { initLayout } from './assets/js/layout.js';
+import { statusDot, switchControl, detailRow, openLayerWith, toast, badge } from './assets/js/ui.js';
+import { getState, subscribe, refreshStatus, canControl, getDevice } from './assets/js/store.js';
+import { escapeHtml, formatTime } from './assets/js/format.js';
+import { sendDeviceAction, getDeviceDetail, waitForAction } from './assets/js/api.js';
+
+if (requireAuth()) {
+  const content = initLayout('devices');
+
+  // Các bước hiển thị trong lúc chờ thiết bị phản hồi.
+  const STEPS = [
+    'Gửi yêu cầu đến Server',
+    'Server publish MQTT',
+    'MQTT Broker chuyển lệnh',
+    'ESP32 nhận lệnh',
+    'Chờ xác nhận thiết bị',
+    'Thiết bị phản hồi',
+  ];
+
+  const RESULT_MESSAGES = {
+    Failed: 'Thiết bị báo thực thi thất bại.',
+    Timeout: 'Thiết bị không phản hồi trong thời gian quy định.',
+  };
+
+  /* ─── Giao diện ────────────────────────────────────────── */
+  function bannerHtml() {
+    if (!SHOW_IOT_DATA) return '';
+    const { esp32Online, mqttConnected, loaded } = getState();
+    if (!loaded || (esp32Online && mqttConnected)) return '';
+
+    const [title, text] = !mqttConnected
+      ? ['⚠ Mất kết nối MQTT Broker', 'Máy chủ không gửi được lệnh xuống thiết bị.']
+      : ['⚠ Thiết bị IoT mất kết nối', 'Không thể gửi lệnh điều khiển cho đến khi thiết bị kết nối lại.'];
+
+    return `
+      <div class="banner banner--danger">
+        <div>
+          <div class="banner__title">${title}</div>
+          <div class="banner__text">${text}</div>
+        </div>
+        <button type="button" class="btn btn--outline-danger" id="retryButton">Thử kết nối lại</button>
+      </div>`;
+  }
+
+  function cardsHtml() {
+    const { devices, loaded } = getState();
+
+    if (!loaded) {
+      return `<div class="card"><div class="empty-state">
+        <div class="empty-state__icon"><span class="spinner"></span></div>
+        <div class="empty-state__title">Đang tải thiết bị...</div></div></div>`;
+    }
+    if (devices.length === 0) {
+      return `<div class="card">${
+        `<div class="empty-state"><div class="empty-state__icon">🔌</div>
+         <div class="empty-state__title">Chưa có thiết bị nào</div>
+         <div class="empty-state__hint">Chưa nhận được bản tin nào từ ESP32.</div></div>`}</div>`;
+    }
+
+    const blocked = !canControl();
+
+    return `<div class="grid-3">${devices.map((device, index) => {
+      const online = device.connection === 'online';
+      const isOn = device.state === 'ON';
+      return `
+        <article class="device-card${isOn ? ' is-on' : ''}" data-card="${index}" tabindex="0"
+                 role="button" aria-label="Chi tiết ${escapeHtml(device.name)}">
+          <div class="device-card__top">
+            <div class="device-card__icon">${device.icon}</div>
+            <div class="status-inline">
+              ${device.connection === null ? '' : statusDot(online)}
+              <span class="status-inline__value ${online ? 'is-up' : 'is-down'}">${device.connection === null ? '—' : online ? 'Online' : 'Offline'}</span>
+            </div>
+          </div>
+          <div class="device-card__name">${escapeHtml(device.name)}</div>
+          <div class="device-card__meta">${escapeHtml(device.device_id)} • ${escapeHtml(device.gpio)}</div>
+          <div class="device-card__foot">
+            <div>
+              <div class="device-card__cmd-label">Lệnh cuối</div>
+              <div class="device-card__cmd-value">${device.last_command ? formatTime(device.last_command) : '—'}</div>
+            </div>
+            ${switchControl({ on: isOn, unknown: device.state === null, disabled: blocked || !online, index })}
+          </div>
+        </article>`;
+    }).join('')}</div>`;
+  }
+
+  function render() {
+    content.innerHTML = `
+      <div class="page">
+        <div id="banner">${bannerHtml()}</div>
+        <div id="cards">${cardsHtml()}</div>
+      </div>`;
+    bindEvents();
+  }
+
+  /* ─── Modal chi tiết thiết bị (F10) ────────────────────── */
+  async function openDetail(index) {
+    const device = getState().devices[index];
+    if (!device) return;
+
+    const layer = openLayerWith(
+      `<div class="modal__header">
+         <h3 class="card__title--lg">Chi tiết thiết bị</h3>
+         <button type="button" class="close-button" data-dismiss aria-label="Đóng">×</button>
+       </div>
+       <div id="detailBody"><div class="empty-state"><span class="spinner"></span></div></div>`,
+      { panelClass: 'modal modal--md' }
+    );
+
+    let esp = null;
+    try {
+      esp = await getDeviceDetail(device.device_id);
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+
+    const rows = [
+      ['Thiết bị', device.name, false],
+      ['ESP', device.device_id, false],
+      ['GPIO', device.gpio, false],
+      ['Trạng thái', device.state ?? '—', false],
+      ['Kết nối', device.connection === null ? '—' : device.connection === 'online' ? 'Online' : 'Offline', false],
+      ['Lần cuối hoạt động', device.last_command ? formatTime(device.last_command) : '—', false],
+      ['IP Address', esp?.ip ?? '—', true],
+      ['MQTT Command Topic', esp?.command_topic ?? 'iot/control', true],
+      ['MQTT Feedback Topic', esp?.feedback_topic ?? 'iot/feedback', true],
+    ].map(([label, value, isMono]) =>
+      detailRow(label, escapeHtml(String(value)), { mono: isMono, size: 'sm' })).join('');
+
+    const isOn = device.state === 'ON';
+    layer.panel.querySelector('#detailBody').innerHTML = `
+      <div style="font-size:32px;margin-bottom:var(--space-5)">${device.icon}</div>
+      ${rows}
+      <button type="button" class="btn ${isOn ? 'btn--danger' : 'btn--primary'} btn--block"
+              id="detailToggle" style="margin-top:var(--space-8);padding:11px;border-radius:var(--radius-lg)"
+              ${canControl() && device.connection === 'online' ? '' : 'disabled'}>
+        ${isOn ? 'Tắt thiết bị' : 'Bật thiết bị'}
+      </button>`;
+
+    layer.panel.querySelector('#detailToggle').addEventListener('click', () => {
+      layer.close();
+      openConfirm(index);
+    });
+  }
+
+  /* ─── Xác nhận trước khi gửi (F14, Hình 3.9) ───────────── */
+  function openConfirm(index) {
+    const device = getState().devices[index];
+    if (!device) return;
+
+    const isOn = device.state === 'ON';
+    const verb = isOn ? 'tắt' : 'bật';
+
+    const layer = openLayerWith(
+      `<div class="modal__icon">⚡</div>
+       <h3 class="modal__title">Xác nhận điều khiển</h3>
+       <p class="modal__text">Bạn có chắc chắn muốn
+         <strong style="color:var(--color-text)">${verb} ${escapeHtml(device.name)}</strong>?</p>
+       <div class="modal__actions">
+         <button type="button" class="btn btn--secondary" data-dismiss>Hủy</button>
+         <button type="button" class="btn btn--primary" id="confirmSend">Xác nhận</button>
+       </div>`,
+      { panelClass: 'modal modal--center' }
+    );
+
+    layer.panel.querySelector('#confirmSend').addEventListener('click', () => {
+      layer.close();
+      runCommand(device, isOn ? 'OFF' : 'ON');
+    });
+  }
+
+  /* ─── Gửi lệnh và theo dõi kết quả (F11, Hình 3.10) ─────── */
+  async function runCommand(device, action) {
+    const stepsHtml = (current) => STEPS.map((label, i) => {
+      const state = i < current ? 'is-done' : i === current ? 'is-current' : '';
+      const marker = i < current ? '✓' : i === current ? '●' : '○';
+      return `<div class="step ${state}"><div class="step__marker">${marker}</div>` +
+             `<span class="step__label">${label}</span></div>`;
+    }).join('');
+
+    const layer = openLayerWith(
+      `<h3 class="card__title--lg" style="margin-bottom:var(--space-8)">Đang xử lý lệnh...</h3>
+       <div class="steps" id="steps">${stepsHtml(0)}</div>`,
+      { panelClass: 'modal modal--md', strong: true }
+    );
+
+    const setStep = (index) => {
+      const node = layer.panel.querySelector('#steps');
+      if (node) node.innerHTML = stepsHtml(index);
+    };
+
+    let accepted;
+    try {
+      accepted = await sendDeviceAction(device.device_id, device.target, action);
+    } catch (error) {
+      showResult(layer, 'Failed', error.message);
+      toast(error.message, 'error');
+      return;
+    }
+
+    // Server đã nhận và publish xong 3 bước đầu.
+    setStep(3);
+
+    const result = await waitForAction(accepted.action_id, {
+      timeoutSeconds: accepted.timeout_seconds ?? 5,
+      onTick: () => setStep(4),
+    });
+
+    await refreshStatus();
+
+    if (result.result === 'Success') {
+      showResult(layer, 'Success', null, device, action);
+      toast(`Đã ${action === 'ON' ? 'bật' : 'tắt'} ${device.name} thành công.`, 'success');
+    } else {
+      const message = result.error_msg || RESULT_MESSAGES[result.result] || 'Lệnh không thực hiện được.';
+      showResult(layer, result.result, message, device, action);
+      toast(`${device.name}: ${message}`, 'error');
+    }
+  }
+
+  function showResult(layer, result, message, device, action) {
+    const success = result === 'Success';
+    const badgeType = success ? 'success' : result === 'Timeout' ? 'warning' : 'error';
+
+    layer.panel.classList.add('modal--center');
+    layer.panel.innerHTML = `
+      <div class="modal__icon modal__icon--lg">${success ? '✅' : result === 'Timeout' ? '⏱️' : '❌'}</div>
+      <h3 class="modal__title" style="color:var(--color-${success ? 'success' : result === 'Timeout' ? 'warning' : 'danger'})">
+        ${success ? 'Điều khiển thành công' : result === 'Timeout' ? 'Thiết bị không phản hồi' : 'Điều khiển thất bại'}
+      </h3>
+      <p class="modal__text">${escapeHtml(
+        success
+          ? `Lệnh đã được thiết bị xác nhận: ${device.name} → ${action}.`
+          : message
+      )}</p>
+      <div style="margin-bottom:var(--space-7)">${badge(badgeType, result)}</div>
+      <button type="button" class="btn btn--primary btn--block" id="closeResult">Đóng</button>`;
+
+    layer.panel.querySelector('#closeResult').addEventListener('click', () => layer.close());
+  }
+
+  /* ─── Sự kiện ──────────────────────────────────────────── */
+  function bindEvents() {
+    document.getElementById('retryButton')?.addEventListener('click', async (event) => {
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = 'Đang kiểm tra...';
+      await refreshStatus();
+    });
+
+    content.querySelectorAll('[data-switch]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation(); // đừng mở modal chi tiết của card
+        if (!canControl()) {
+          toast('Không thể gửi lệnh khi thiết bị hoặc MQTT mất kết nối.', 'error');
+          return;
+        }
+        openConfirm(Number(button.dataset.switch));
+      });
+    });
+
+    content.querySelectorAll('[data-card]').forEach((card) => {
+      const open = () => openDetail(Number(card.dataset.card));
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      });
+    });
+  }
+
+  subscribe(() => {
+    const banner = document.getElementById('banner');
+    const cards = document.getElementById('cards');
+    if (!banner || !cards) return;
+    banner.innerHTML = bannerHtml();
+    cards.innerHTML = cardsHtml();
+    bindEvents();
+  });
+
+  render();
+}
+  </script>
+</body>
+</html>

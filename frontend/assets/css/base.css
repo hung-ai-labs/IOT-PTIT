@@ -1,0 +1,72 @@
+/* base.css — reset + typography nền */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* min-height chứ KHÔNG phải height: trang cuộn bằng thanh cuộn trình duyệt nên
+   body phải cao bằng nội dung. Để height:100% thì body bị khoá đúng một màn hình,
+   .app tràn ra ngoài, và position:sticky của header/sidebar tính sai vùng neo —
+   Safari cho chúng trôi mất khi cuộn (Chrome thì bỏ qua lỗi này). */
+html, body { min-height: 100%; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, p { margin: 0; }
+
+a { color: var(--color-primary); text-decoration: none; }
+
+button, input, select, textarea { font-family: inherit; }
+
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+code, .mono, .font-mono { font-family: var(--font-mono); }
+
+table { width: 100%; border-collapse: collapse; }
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Thanh cuộn */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-surface); }
+::-webkit-scrollbar-thumb {
+  background: var(--color-switch-track);
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-surface);  /* viền tạo khoảng hở, nhìn thon hơn */
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* Tiện ích */
+.hidden { display: none !important; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.text-temp     { color: var(--color-temp); }
+.text-humidity { color: var(--color-humidity); }
+.text-light    { color: var(--color-light); }
+.text-muted    { color: var(--color-text-muted); }
+.text-secondary{ color: var(--color-text-secondary); }
+
+/* Chuyển động dùng chung */
+@keyframes spin      { to { transform: rotate(360deg); } }
+@keyframes pulse     { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes slide-in  { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes fade-in   { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

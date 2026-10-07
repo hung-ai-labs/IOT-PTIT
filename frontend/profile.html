@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hồ sơ — Smart IoT</title>
+  <link rel="stylesheet" href="assets/css/fonts.css">
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+  <script type="module">
+import { PROJECT_RESOURCES } from './assets/js/config.js';
+import { icons } from './assets/js/icons.js';
+import { requireAuth } from './assets/js/auth.js';
+import { initLayout } from './assets/js/layout.js';
+import { badge, detailRow, toast, avatar } from './assets/js/ui.js';
+import { escapeHtml, formatDateTime } from './assets/js/format.js';
+import { getProfile, updateProfile } from './assets/js/api.js';
+
+if (requireAuth()) {
+  const content = initLayout('profile');
+  content.innerHTML = '<div class="page page--center"><div class="profile">Đang tải thông tin cá nhân…</div><section class="card project-resources" id="projectResources"></section></div>';
+  const container = content.querySelector('.profile');
+  content.querySelector('#projectResources').innerHTML = `
+    <div class="card__header"><div>
+      <h2 class="card__title">Tài nguyên dự án</h2>
+      <p class="card__subtitle">Liên kết thiết kế, mã nguồn và tài liệu</p>
+    </div></div>
+    <div class="project-resources__grid">${PROJECT_RESOURCES.map((resource) => {
+      const body = `<span class="resource-card__icon resource-card__icon--${resource.tone}">${icons[resource.icon]()}</span>
+        <span class="resource-card__body"><span class="resource-card__title">${resource.title}</span>
+        <span class="resource-card__description">${resource.description}</span></span>
+        ${resource.href ? icons.external() : ''}`;
+      return resource.href
+        ? `<a class="resource-card" href="${escapeHtml(resource.href)}" target="_blank" rel="noopener noreferrer">${body}</a>`
+        : `<div class="resource-card resource-card--pending" aria-label="Figma: chưa bổ sung liên kết">${body}</div>`;
+    }).join('')}</div>`;
+
+  let user;
+  const fields = [
+    { key: 'full_name', label: 'Họ và tên', max: 100, required: true },
+    { key: 'student_id', label: 'Mã sinh viên', max: 30 },
+    { key: 'school', label: 'Trường', max: 200 },
+    { key: 'contact_email', label: 'Email liên hệ', max: 150, type: 'email' },
+  ];
+
+  function render() {
+    const rows = [
+      ...fields.map(({ key, label }) => [label, user[key] || 'Chưa cập nhật']),
+      ['Email đăng nhập', user.email], ['Vai trò', user.role],
+      ['Ngày tạo tài khoản', formatDateTime(user.created_at)],
+    ].map(([label, value]) => detailRow(label, escapeHtml(value), { size: 'md' })).join('');
+    container.innerHTML = `
+      <section class="card card--lg profile__head">
+        <div class="profile__avatar">${avatar(user.full_name, 'lg')}</div>
+        <h2 class="profile__name">${escapeHtml(user.full_name)}</h2>
+        <p class="profile__role">${escapeHtml(user.student_id || 'Thông tin cá nhân')}</p>
+        ${badge('info', user.role)}
+      </section>
+      <section class="card card--lg">
+        <div class="card__header"><h3 class="card__title">Thông tin cá nhân</h3>
+          <button type="button" class="btn btn--secondary" id="editProfile">Chỉnh sửa</button></div>
+        ${rows}
+      </section>`;
+    container.querySelector('#editProfile').onclick = renderForm;
+  }
+
+  function renderForm() {
+    container.innerHTML = `<section class="card card--lg">
+      <h3 class="card__title">Chỉnh sửa thông tin cá nhân</h3>
+      <form id="profileForm" class="profile__form">
+        <fieldset class="profile__fields" id="profileFields">
+          ${fields.map((field) => `<div>
+            <label class="label" for="profile-${field.key}">${field.label}</label>
+            <input class="input" id="profile-${field.key}" name="${field.key}" type="${field.type || 'text'}"
+              maxlength="${field.max}" ${field.required ? 'required minlength="2" autocomplete="name"' : ''}
+              value="${escapeHtml(user[field.key] || '')}"></div>`).join('')}
+          <p class="text-muted">Email liên hệ dùng trong hồ sơ. Email đăng nhập: ${escapeHtml(user.email)}.</p>
+          <p class="profile__error hidden" id="profileError" role="alert"></p>
+          <div class="profile__actions">
+            <button type="button" class="btn btn--secondary" id="cancelProfile">Hủy</button>
+            <button type="submit" class="btn btn--primary" id="saveProfile">Lưu thay đổi</button>
+          </div>
+        </fieldset>
+      </form></section>`;
+    const form = container.querySelector('#profileForm');
+    const error = container.querySelector('#profileError');
+    const fieldset = container.querySelector('#profileFields');
+    const save = container.querySelector('#saveProfile');
+    container.querySelector('#cancelProfile').onclick = render;
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const payload = Object.fromEntries(fields.map(({ key }) => [key, String(data.get(key)).trim() || null]));
+      error.classList.add('hidden');
+      fieldset.disabled = true;
+      save.textContent = 'Đang lưu…';
+      try {
+        user = await updateProfile(payload);
+        render();
+        toast('Đã cập nhật thông tin cá nhân.', 'success');
+      } catch (failure) {
+        error.textContent = failure.message;
+        error.classList.remove('hidden');
+        fieldset.disabled = false;
+        save.textContent = 'Lưu thay đổi';
+      }
+    };
+    container.querySelector('#profile-full_name').focus();
+  }
+
+  try {
+    user = await getProfile();
+    render();
+  } catch (error) {
+    container.innerHTML = `<section class="card card--lg"><div class="empty-state">
+      <div class="empty-state__title">Không tải được hồ sơ</div>
+      <div class="empty-state__hint">${escapeHtml(error.message)}</div>
+      <button type="button" class="btn btn--secondary" id="retryProfile">Thử lại</button>
+    </div></section>`;
+    container.querySelector('#retryProfile').onclick = () => window.location.reload();
+  }
+}
+  </script>
+</body>
+</html>

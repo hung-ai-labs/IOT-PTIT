@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Môi trường
+.env
+.env.local
+
+# Dữ liệu sinh ra
+backend/storage/
+*.db
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Log
+*.log
+
+# pytest
+.pytest_cache/
+
+# Local agent state and generated analysis
+.claude/
+.codex/
+.agents/
+graphify-out/
+.env.*
+!.env.example
+*.sqlite

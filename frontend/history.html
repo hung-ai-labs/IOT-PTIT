@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lịch sử thao tác — Smart IoT</title>
+  <link rel="stylesheet" href="assets/css/fonts.css">
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+  <script type="module">
+// history.js — S6 Lịch sử thao tác (SRS Hình 3.6)
+//
+// Lọc và phân trang do backend xử lý (GET /api/v1/device-actions).
+
+import { requireAuth } from './assets/js/auth.js';
+import { initLayout } from './assets/js/layout.js';
+import { badge, emptyState, pagination, bindPagination, toast } from './assets/js/ui.js';
+import { escapeHtml, formatTime, formatDateTime } from './assets/js/format.js';
+import { getDeviceActions } from './assets/js/api.js';
+
+if (requireAuth()) {
+  const content = initLayout('history');
+
+  const RESULT_BADGE = {
+    Success: 'success',
+    Failed: 'error',
+    Timeout: 'warning',
+    Pending: 'muted',
+  };
+
+  const filters = { target: '', action: '', result: '', from: '', to: '' };
+  let page = 1;
+  const perPage = 20;
+  let result = { items: [], page: 1, total: 0, totalPages: 1 };
+
+  const startOfDay = (value) => (value ? new Date(`${value}T00:00:00`).toISOString() : undefined);
+  const endOfDay = (value) => (value ? new Date(`${value}T23:59:59.999`).toISOString() : undefined);
+
+  async function fetchPage() {
+    try {
+      result = await getDeviceActions({
+        target: filters.target,
+        action: filters.action,
+        result: filters.result,
+        from: startOfDay(filters.from),
+        to: endOfDay(filters.to),
+        page,
+        size: perPage,
+      });
+    } catch (error) {
+      result = { items: [], page: 1, total: 0, totalPages: 1, error: error.message };
+      toast(error.message, 'error');
+    }
+  }
+
+  function filterBarHtml() {
+    return `
+      <div class="filter-bar">
+        <select class="select" id="targetFilter" aria-label="Lọc theo thiết bị">
+          <option value="">Tất cả thiết bị</option>
+          <option value="led">Đèn đỏ</option>
+          <option value="fan">Đèn xanh</option>
+          <option value="ac">Đèn vàng</option>
+        </select>
+        <select class="select" id="actionFilter" aria-label="Lọc theo hành động">
+          <option value="">Tất cả hành động</option>
+          <option value="ON">Bật</option>
+          <option value="OFF">Tắt</option>
+        </select>
+        <select class="select" id="resultFilter" aria-label="Lọc theo kết quả">
+          <option value="">Tất cả kết quả</option>
+          <option value="Success">Thành công</option>
+          <option value="Failed">Thất bại</option>
+          <option value="Timeout">Quá hạn</option>
+          <option value="Pending">Đang xử lý</option>
+        </select>
+        <input class="input" type="date" id="fromDate" aria-label="Từ ngày">
+        <input class="input" type="date" id="toDate" aria-label="Đến ngày">
+        <button type="button" class="btn btn--secondary" id="resetFilter">Đặt lại</button>
+      </div>`;
+  }
+
+  function rowsHtml() {
+    return result.items.map((record) => {
+      const who = record.issued_by?.full_name ?? '— (thiết bị tự đổi)';
+      const note = record.error_msg
+        ? `<div class="text-muted" style="font-size:var(--text-xs);margin-top:2px">${escapeHtml(record.error_msg)}</div>`
+        : '';
+      return `
+        <tr title="${escapeHtml(formatDateTime(record.timestamp))}">
+          <td><span class="mono" style="font-size:var(--text-sm)">${record.id}</span></td>
+          <td>${badge('info', record.device_id)}</td>
+          <td>${escapeHtml(record.target_label)}</td>
+          <td>${badge(record.action === 'ON' ? 'success' : 'muted', record.action === 'ON' ? 'Bật' : 'Tắt')}</td>
+          <td>${escapeHtml(who)}</td>
+          <td>${badge(RESULT_BADGE[record.result] ?? 'muted', record.result)}${note}</td>
+          <td><span class="mono text-secondary" style="font-size:var(--text-sm)">${formatTime(record.timestamp)}</span></td>
+        </tr>`;
+    }).join('');
+  }
+
+  function tableHtml() {
+    if (result.error) {
+      return `<div class="card card--table">${
+        emptyState('⚠️', 'Không tải được lịch sử', result.error)}</div>`;
+    }
+
+    const body = `<table class="table">
+      <thead><tr>
+        <th>ID</th><th>Device ID</th><th>Thiết bị</th><th>Hành động</th>
+        <th>Người thực hiện</th><th>Kết quả</th><th>Thời gian</th>
+      </tr></thead>
+      <tbody>${result.items.length ? rowsHtml() : `<tr><td colspan="7">${
+        emptyState('🔍', 'Không có thao tác nào', 'Chưa có lịch sử thao tác để hiển thị.')}</td></tr>`}</tbody>
+    </table>`;
+
+    return `<div class="card card--table">${body}${
+      pagination({ page: result.page, perPage, total: result.total })}</div>`;
+  }
+
+  async function renderTable() {
+    const wrap = document.getElementById('tableWrap');
+    wrap.innerHTML = `<div class="card card--table"><div class="empty-state">
+      <div class="empty-state__icon"><span class="spinner"></span></div>
+      <div class="empty-state__title">Đang tải...</div></div></div>`;
+
+    await fetchPage();
+    wrap.innerHTML = tableHtml();
+    bindPagination(wrap, result.totalPages, (next) => { page = next; renderTable(); });
+  }
+
+  content.innerHTML = `
+    <div class="page page--tight">
+      ${filterBarHtml()}
+      <div id="tableWrap"></div>
+    </div>`;
+
+  const onFilterChange = (key, id) => {
+    document.getElementById(id).addEventListener('change', (event) => {
+      filters[key] = event.target.value;
+      page = 1;
+      renderTable();
+    });
+  };
+
+  onFilterChange('target', 'targetFilter');
+  onFilterChange('action', 'actionFilter');
+  onFilterChange('result', 'resultFilter');
+  onFilterChange('from', 'fromDate');
+  onFilterChange('to', 'toDate');
+
+  document.getElementById('resetFilter').addEventListener('click', () => {
+    Object.assign(filters, { target: '', action: '', result: '', from: '', to: '' });
+    ['targetFilter', 'actionFilter', 'resultFilter', 'fromDate', 'toDate']
+      .forEach((id) => { document.getElementById(id).value = ''; });
+    page = 1;
+    renderTable();
+  });
+
+  renderTable();
+}
+  </script>
+</body>
+</html>

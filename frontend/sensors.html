@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dữ liệu cảm biến — Smart IoT</title>
+  <link rel="stylesheet" href="assets/css/fonts.css">
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+  <script type="module">
+// sensors.js — S4 Dữ liệu cảm biến (SRS Hình 3.4)
+//
+// Lọc, sắp xếp và phân trang đều do BACKEND xử lý (GET /api/v1/sensors),
+// nên trang này chỉ thu thập tham số rồi vẽ lại bảng.
+
+import { requireAuth } from './assets/js/auth.js';
+import { initLayout } from './assets/js/layout.js';
+import { badge, emptyState, pagination, bindPagination, detailRow, openLayerWith, toast } from './assets/js/ui.js';
+import { escapeHtml, formatDateTime } from './assets/js/format.js';
+import { getSensorRecords, getSensorDevices } from './assets/js/api.js';
+
+if (requireAuth()) {
+  const content = initLayout('sensors');
+
+  const PER_PAGE_OPTIONS = [10, 25, 50];
+
+  const SENSOR_LABELS = {
+    temperature: { text: 'Nhiệt độ', className: 'text-temp' },
+    humidity: { text: 'Độ ẩm', className: 'text-humidity' },
+    light: { text: 'Ánh sáng', className: 'text-light' },
+  };
+
+  const COLUMNS = [
+    { key: 'id', label: 'ID' },
+    { key: 'device_id', label: 'Device ID' },
+    { key: 'sensor_type', label: 'Loại' },
+    { key: 'value', label: 'Giá trị' },
+    { key: null, label: 'Đơn vị' },
+    { key: 'timestamp', label: 'Thời gian' },
+  ];
+
+  const filters = { deviceId: '', sensorType: '', from: '', to: '' };
+  let sortKey = 'timestamp';
+  let sortDir = 'desc';
+  let page = 1;
+  let perPage = 10;
+  let result = { items: [], page: 1, size: perPage, total: 0, totalPages: 1 };
+
+  /* ─── Chuyển giá trị của <input type="date"> sang ISO ───── */
+  const startOfDay = (value) => (value ? new Date(`${value}T00:00:00`).toISOString() : undefined);
+  const endOfDay = (value) => (value ? new Date(`${value}T23:59:59.999`).toISOString() : undefined);
+
+  async function fetchPage() {
+    try {
+      result = await getSensorRecords({
+        deviceId: filters.deviceId,
+        sensorType: filters.sensorType,
+        from: startOfDay(filters.from),
+        to: endOfDay(filters.to),
+        page,
+        size: perPage,
+        sort: `${sortKey}:${sortDir}`,
+      });
+    } catch (error) {
+      result = { items: [], page: 1, size: perPage, total: 0, totalPages: 1, error: error.message };
+      toast(error.message, 'error');
+    }
+  }
+
+  /* ─── Giao diện ────────────────────────────────────────── */
+  function filterBarHtml(devices) {
+    const deviceOptions = ['<option value="">Tất cả thiết bị</option>']
+      .concat(devices.map((id) =>
+        `<option value="${escapeHtml(id)}"${id === filters.deviceId ? ' selected' : ''}>${escapeHtml(id)}</option>`))
+      .join('');
+
+    return `
+      <div class="filter-bar">
+        <select class="select" id="deviceFilter" aria-label="Lọc theo thiết bị">${deviceOptions}</select>
+        <select class="select" id="typeFilter" aria-label="Lọc theo loại cảm biến">
+          <option value="">Tất cả loại</option>
+          <option value="temperature">Nhiệt độ</option>
+          <option value="humidity">Độ ẩm</option>
+          <option value="light">Ánh sáng</option>
+        </select>
+        <input class="input" type="date" id="fromDate" aria-label="Từ ngày">
+        <input class="input" type="date" id="toDate" aria-label="Đến ngày">
+        <button type="button" class="btn btn--primary" id="applyFilter">Lọc</button>
+        <button type="button" class="btn btn--secondary" id="resetFilter">Đặt lại</button>
+      </div>`;
+  }
+
+  function headHtml() {
+    return COLUMNS.map((column) => {
+      if (!column.key) return `<th>${column.label}</th>`;
+
+      const active = sortKey === column.key;
+      const arrow = active ? (sortDir === 'asc' ? '↑' : '↓') : '↕';
+      const ariaSort = active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+      return `<th class="is-sortable" data-sort="${column.key}" aria-sort="${ariaSort}">` +
+             `${column.label}<span class="sort-icon${active ? ' is-active' : ''}">${arrow}</span></th>`;
+    }).join('');
+  }
+
+  function rowsHtml() {
+    return result.items.map((record) => {
+      const label = SENSOR_LABELS[record.sensor_type] ?? { text: record.sensor_type, className: '' };
+      return `
+        <tr data-id="${record.id}">
+          <td><span class="mono" style="font-size:var(--text-sm)">${record.id}</span></td>
+          <td>${badge('info', record.device_id)}</td>
+          <td>${label.text}</td>
+          <td class="${label.className}">${record.value}</td>
+          <td class="text-muted">${escapeHtml(record.unit)}</td>
+          <td><span class="mono text-secondary" style="font-size:var(--text-sm)">${formatDateTime(record.timestamp)}</span></td>
+        </tr>`;
+    }).join('');
+  }
+
+  function tableHtml() {
+    if (result.error) {
+      return `<div class="card card--table">${
+        emptyState('⚠️', 'Không tải được dữ liệu', result.error)}</div>`;
+    }
+
+    const body = `<table class="table table--clickable">
+      <thead><tr>${headHtml()}</tr></thead>
+      <tbody>${result.items.length ? rowsHtml() : `<tr><td colspan="6">${
+        emptyState('🔍', 'Không tìm thấy dữ liệu', 'Chưa có dữ liệu cảm biến để hiển thị.')}</td></tr>`}</tbody>
+    </table>`;
+
+    const perPageSelect =
+      `<select class="select" id="perPageSelect" aria-label="Số bản ghi mỗi trang">` +
+      PER_PAGE_OPTIONS.map((n) =>
+        `<option value="${n}"${n === perPage ? ' selected' : ''}>${n} / trang</option>`).join('') +
+      `</select>`;
+
+    const pager = pagination({ page: result.page, perPage, total: result.total })
+      .replace('</div></div>', `</div>${perPageSelect}</div>`);
+
+    return `<div class="card card--table">${body}${pager}</div>`;
+  }
+
+  function loadingHtml() {
+    return `<div class="card card--table">
+      <div class="empty-state">
+        <div class="empty-state__icon"><span class="spinner"></span></div>
+        <div class="empty-state__title">Đang tải dữ liệu...</div>
+      </div>
+    </div>`;
+  }
+
+  /* ─── Ngăn kéo chi tiết ────────────────────────────────── */
+  function openDetail(record) {
+    const label = SENSOR_LABELS[record.sensor_type]?.text ?? record.sensor_type;
+    const rows = [
+      ['Record ID', String(record.id), true],
+      ['Device ID', record.device_id, false],
+      ['Loại cảm biến', label, false],
+      ['Giá trị', `${record.value} ${record.unit}`, false],
+      ['Timestamp', formatDateTime(record.timestamp), true],
+      ['MQTT Topic', 'iot/sensor', true],
+    ].map(([lbl, value, isMono]) => detailRow(lbl, escapeHtml(value), { mono: isMono })).join('');
+
+    openLayerWith(
+      `<div class="modal__header">
+         <h3 class="card__title--lg">Chi tiết dữ liệu cảm biến</h3>
+         <button type="button" class="close-button" data-dismiss aria-label="Đóng">×</button>
+       </div>${rows}`,
+      { panelClass: 'drawer' }
+    );
+  }
+
+  /* ─── Vẽ và gắn sự kiện ────────────────────────────────── */
+  async function renderTable() {
+    const wrap = document.getElementById('tableWrap');
+    wrap.innerHTML = loadingHtml();
+    await fetchPage();
+    wrap.innerHTML = tableHtml();
+    bindTable(wrap);
+  }
+
+  function bindTable(wrap) {
+    wrap.querySelectorAll('[data-sort]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        else { sortKey = key; sortDir = 'desc'; }
+        page = 1;
+        renderTable();
+      });
+    });
+
+    wrap.querySelectorAll('tbody tr').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        const record = result.items.find((item) => item.id === Number(tr.dataset.id));
+        if (record) openDetail(record);
+      });
+    });
+
+    bindPagination(wrap, result.totalPages, (next) => { page = next; renderTable(); });
+
+    wrap.querySelector('#perPageSelect')?.addEventListener('change', (event) => {
+      perPage = Number(event.target.value);
+      page = 1;
+      renderTable();
+    });
+  }
+
+  function bindFilterBar() {
+    const apply = () => {
+      filters.deviceId = document.getElementById('deviceFilter').value;
+      filters.sensorType = document.getElementById('typeFilter').value;
+      filters.from = document.getElementById('fromDate').value;
+      filters.to = document.getElementById('toDate').value;
+      page = 1;
+      renderTable();
+    };
+
+    document.getElementById('applyFilter').addEventListener('click', apply);
+    document.getElementById('deviceFilter').addEventListener('change', apply);
+    document.getElementById('typeFilter').addEventListener('change', apply);
+
+    document.getElementById('resetFilter').addEventListener('click', () => {
+      Object.assign(filters, { deviceId: '', sensorType: '', from: '', to: '' });
+      document.getElementById('deviceFilter').value = '';
+      document.getElementById('typeFilter').value = '';
+      document.getElementById('fromDate').value = '';
+      document.getElementById('toDate').value = '';
+      sortKey = 'timestamp';
+      sortDir = 'desc';
+      page = 1;
+      renderTable();
+    });
+  }
+
+  const devices = await getSensorDevices().catch(() => []);
+
+  content.innerHTML = `
+    <div class="page page--tight">
+      ${filterBarHtml(devices)}
+      <div id="tableWrap"></div>
+    </div>`;
+
+  bindFilterBar();
+  renderTable();
+}
+  </script>
+</body>
+</html>

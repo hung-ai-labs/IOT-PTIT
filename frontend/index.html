@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tổng quan — Smart IoT</title>
+  <link rel="stylesheet" href="assets/css/fonts.css">
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/pages.css">
+  <script src="assets/vendor/chart.umd.js"></script>
+</head>
+<body>
+  <script type="module">
+// dashboard.js — S3 Tổng quan (SRS Hình 3.3)
+
+import { SHOW_IOT_DATA } from './assets/js/config.js';
+import { requireAuth } from './assets/js/auth.js';
+import { initLayout } from './assets/js/layout.js';
+import { statusDot, badge, switchControl, toast } from './assets/js/ui.js';
+import { getState, subscribe, refreshStatus, canControl } from './assets/js/store.js';
+import { formatTemp, formatHumidity, formatLight, formatTime, formatHourMinute, escapeHtml } from './assets/js/format.js';
+import { getLatestSensor, getSensorSeries, getDeviceActions, sendDeviceAction, waitForAction } from './assets/js/api.js';
+import { onConnectionState, onMessage } from './assets/js/ws.js';
+
+if (requireAuth()) {
+  const content = initLayout('dashboard');
+
+  /* ─── Trạng thái cục bộ của trang ──────────────────────── */
+  let reading = { temp: null, humidity: null, light: null, updatedAt: null };
+  let series = [];
+  let activity = [];
+  let sensorError = null;
+  let selectedSensor = 'temp';
+  let chart = null;
+  const pendingToggles = new Set();
+
+  const RESULT_BADGE = { Success: 'success', Failed: 'error', Timeout: 'warning', Pending: 'muted' };
+
+  const SENSOR_CARDS = [
+    { key: 'temp',     label: 'Nhiệt độ', icon: '🌡️', color: 'var(--color-temp)',     bg: 'var(--alpha-temp-bg)',     format: formatTemp },
+    { key: 'humidity', label: 'Độ ẩm',    icon: '💧', color: 'var(--color-humidity)', bg: 'var(--alpha-humidity-bg)', format: formatHumidity },
+    { key: 'light',    label: 'Ánh sáng', icon: '☀️', color: 'var(--color-light)',    bg: 'var(--alpha-light-bg)',    format: formatLight },
+  ];
+
+  /* ─── Các mảnh giao diện ───────────────────────────────── */
+  function bannersHtml() {
+    if (!SHOW_IOT_DATA) return '';
+    const { esp32Online } = getState();
+    let html = '';
+
+    if (getState().loaded && !esp32Online) {
+      html += `
+        <div class="banner banner--danger">
+          <div>
+            <div class="banner__title">⚠ Thiết bị IoT mất kết nối</div>
+            <div class="banner__text">Không thể gửi lệnh điều khiển cho đến khi thiết bị kết nối lại.</div>
+          </div>
+          <button type="button" class="btn btn--outline-danger" data-action="reconnect">Thử kết nối lại</button>
+        </div>`;
+    }
+    if (reading.temp !== null && reading.temp > 30) {
+      html += `
+        <div class="banner banner--warning">
+          <div>
+            <div class="banner__title">⚠ Cảnh báo nhiệt độ cao</div>
+            <div class="banner__text">Nhiệt độ đã vượt ngưỡng 30°C.</div>
+          </div>
+
+        </div>`;
+    }
+    return html;
+  }
+
+  function sensorCardsHtml() {
+    return `<div class="grid-3">${SENSOR_CARDS.map((c) => {
+      const value = reading[c.key];
+      const hasValue = value !== null && value !== undefined;
+      const isWarning = c.key === 'temp' && hasValue && value > 30;
+      return `
+        <article class="stat-card" style="--stat-color:${c.color};--stat-bg:${c.bg}">
+          <div class="stat-card__top">
+            <div>
+              <div class="stat-card__label">${c.label}</div>
+              <div class="stat-card__value" data-stat="${c.key}">${hasValue ? c.format(value) : '—'}</div>
+            </div>
+            <div class="stat-card__icon">${c.icon}</div>
+          </div>
+          <div class="stat-card__foot">
+            ${hasValue
+              ? badge(isWarning ? 'warning' : 'success', isWarning ? 'Cảnh báo' : 'Bình thường')
+              : badge('muted', 'Chưa có dữ liệu')}
+            <span class="stat-card__delta">${hasValue && reading.updatedAt ? `Cập nhật ${formatTime(reading.updatedAt)}` : 'Chờ bản tin từ ESP32'}</span>
+          </div>
+        </article>`;
+    }).join('')}</div>`;
+  }
+
+  function deviceListHtml() {
+    const { devices, loaded } = getState();
+    if (!loaded) return '<div class="empty-state"><span class="spinner"></span></div>';
+    if (devices.length === 0) {
+      return '<div class="empty-state__hint">Chưa nhận được thiết bị nào.</div>';
+    }
+
+    const blocked = !canControl();
+
+    return devices.map((device, index) => {
+      const isOn = device.state === 'ON';
+      const online = device.connection === 'online';
+      return `
+        <div class="device-mini${isOn ? ' is-on' : ''}">
+          <div class="device-mini__icon">${device.icon}</div>
+          <div class="device-mini__body">
+            <div class="device-mini__name">${escapeHtml(device.name)}</div>
+            <div class="device-mini__meta">${device.connection === null ? '' : statusDot(online)}<span>${escapeHtml(device.device_id)}</span></div>
+          </div>
+          ${switchControl({
+            on: isOn,
+            unknown: device.state === null,
+            disabled: blocked || !online,
+            loading: pendingToggles.has(index),
+            index,
+          })}
+        </div>`;
+    }).join('');
+  }
+
+  function activityRowsHtml() {
+    if (activity.length === 0) {
+      return '<tr><td colspan="4" class="text-muted">Chưa có thao tác nào.</td></tr>';
+    }
+    return activity.map((record) => `
+      <tr>
+        <td>${escapeHtml(record.target_label)}</td>
+        <td>${record.action === 'ON' ? 'Bật' : 'Tắt'}</td>
+        <td>${badge(RESULT_BADGE[record.result] ?? 'muted', record.result)}</td>
+        <td><span class="mono" style="font-size:var(--text-sm)">${formatTime(record.timestamp)}</span></td>
+      </tr>`).join('');
+  }
+
+  /* ─── Vẽ toàn trang ────────────────────────────────────── */
+  function render() {
+    content.innerHTML = `
+      <div class="page">
+        <div id="banners">${bannersHtml()}</div>
+        <div id="sensorCards">${sensorCardsHtml()}</div>
+
+        <div class="grid-main-aside">
+          <section class="card">
+            <div class="card__header">
+              <div>
+                <div class="card__title">Biểu đồ cảm biến</div>
+                <div class="card__subtitle">Dữ liệu thực từ MQTT</div>
+              </div>
+              <div class="range-tabs">
+                <button type="button" class="range-tab is-active" data-sensor="temp">Nhiệt độ</button>
+                <button type="button" class="range-tab" data-sensor="humidity">Độ ẩm</button>
+                <button type="button" class="range-tab" data-sensor="light">Ánh sáng</button>
+              </div>
+            </div>
+            <div class="chart-box">
+              <canvas id="sensorChart" hidden></canvas>
+              <div class="empty-state" id="chartEmpty" role="status"></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card__title" style="margin-bottom:var(--space-7)">Điều khiển thiết bị</div>
+            <div class="device-mini-list" id="deviceList">${deviceListHtml()}</div>
+          </section>
+        </div>
+
+        <section class="card" id="activitySection">
+          <div class="card__header">
+            <div class="card__title">Hoạt động gần đây</div>
+            <a class="btn btn--ghost" href="history.html">Xem tất cả →</a>
+          </div>
+          <table class="table table--compact">
+            <thead><tr><th>Thiết bị</th><th>Thao tác</th><th>Kết quả</th><th>Thời gian</th></tr></thead>
+            <tbody id="activityBody">${activityRowsHtml()}</tbody>
+          </table>
+        </section>
+      </div>`;
+
+    bindEvents();
+    content.querySelectorAll('[data-sensor]').forEach((button) => {
+      button.addEventListener('click', () => {
+        selectedSensor = button.dataset.sensor;
+        content.querySelectorAll('[data-sensor]').forEach((tab) => tab.classList.toggle('is-active', tab === button));
+        updateChart();
+      });
+    });
+    updateChart();
+  }
+
+  /* ─── Biểu đồ ──────────────────────────────────────────── */
+  /* Chart.js không hiểu CSS variable — đọc giá trị đã tính từ tokens.css
+     để biểu đồ đổi màu theo giao diện mà không hardcode. */
+  function readThemeColors() {
+    const css = getComputedStyle(document.documentElement);
+    const read = (name) => css.getPropertyValue(name).trim();
+    return {
+      text:      read('--color-text'),
+      secondary: read('--color-text-secondary'),
+      muted:     read('--color-text-muted'),
+      border:    read('--color-border'),
+      card:      read('--color-card'),
+      temp:      read('--color-temp'),
+      humidity:  read('--color-humidity'),
+      light:     read('--color-light'),
+    };
+  }
+
+  function createChart() {
+    const canvas = document.getElementById('sensorChart');
+    const theme = readThemeColors();
+    const axis = { color: theme.muted, font: { size: 11 } };
+    const grid = { color: theme.border, borderDash: [3, 3] };
+
+    chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: series.map((p) => p.time),
+        datasets: [
+          { hidden: selectedSensor !== 'temp', label: 'Nhiệt độ (°C)',  data: series.map((p) => p.temp),     borderColor: theme.temp, borderWidth: 2, pointRadius: 0, tension: 0.35 },
+          { hidden: selectedSensor !== 'humidity', label: 'Độ ẩm (%)',      data: series.map((p) => p.humidity), borderColor: theme.humidity, borderWidth: 2, pointRadius: 0, tension: 0.35 },
+          { hidden: selectedSensor !== 'light', label: 'Ánh sáng (lux)', data: series.map((p) => p.light),    borderColor: theme.light, borderWidth: 2, pointRadius: 0, tension: 0.35 },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            labels: {
+              color: theme.secondary,
+              font: { size: 12 },
+              usePointStyle: true,
+              pointStyle: 'line',
+              boxWidth: 24,
+              boxHeight: 2,
+            },
+          },
+          tooltip: {
+            backgroundColor: theme.card,
+            borderColor: theme.border,
+            borderWidth: 1,
+            titleColor: theme.text,
+            bodyColor: theme.text,
+            bodyFont: { size: 12 },
+            padding: 10,
+          },
+        },
+        scales: {
+          x: { ticks: axis, grid },
+          y: { ticks: axis, grid },
+        },
+      },
+    });
+  }
+
+  function updateChart() {
+    const hasData = series.some((point) => point[selectedSensor] !== null && point[selectedSensor] !== undefined);
+    const canvas = document.getElementById('sensorChart');
+    const empty = document.getElementById('chartEmpty');
+    canvas.hidden = !hasData;
+    empty.hidden = hasData;
+    empty.innerHTML = sensorError
+      ? `<div class="empty-state__title">Không tải được dữ liệu cảm biến</div><div class="empty-state__hint">${escapeHtml(sensorError)}</div>`
+      : '<div class="empty-state__title">Đang chờ dữ liệu MQTT</div><div class="empty-state__hint">Biểu đồ sẽ xuất hiện khi ESP32 gửi dữ liệu cảm biến.</div>';
+    if (!hasData) {
+      chart?.destroy();
+      chart = null;
+      return;
+    }
+    if (!chart) createChart();
+    ['temp', 'humidity', 'light'].forEach((key, index) => chart.setDatasetVisibility(index, key === selectedSensor));
+    chart.data.labels = series.map((point) => point.time);
+    chart.data.datasets[0].data = series.map((point) => point.temp);
+    chart.data.datasets[1].data = series.map((point) => point.humidity);
+    chart.data.datasets[2].data = series.map((point) => point.light);
+    chart.update('none');
+  }
+
+  /* ─── Sự kiện ──────────────────────────────────────────── */
+  function bindEvents() {
+    content.querySelector('[data-action="reconnect"]')?.addEventListener('click', async (event) => {
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = 'Đang kiểm tra...';
+      await refreshStatus();
+    });
+
+    content.querySelectorAll('[data-switch]').forEach((btn) => {
+      btn.onclick = () => handleToggle(Number(btn.dataset.switch));
+    });
+  }
+
+  /**
+   * Bật/tắt nhanh từ Dashboard: công tắc chuyển sang trạng thái đang xử lý,
+   * chỉ đổi trạng thái sau khi thiết bị xác nhận (SRS §2.10).
+   *
+   * Khác với trang Điều khiển thiết bị, ở đây không hiện hộp thoại xác nhận —
+   * đúng như prototype Figma (Hình 3.3 chỉ có công tắc).
+   */
+  async function handleToggle(index) {
+    const device = getState().devices[index];
+    if (!device || !canControl() || pendingToggles.has(index)) return;
+
+    const nextAction = device.state === 'ON' ? 'OFF' : 'ON';
+    pendingToggles.add(index);
+    refreshDeviceList();
+
+    try {
+      const accepted = await sendDeviceAction(device.device_id, device.target, nextAction);
+      const result = await waitForAction(accepted.action_id, {
+        timeoutSeconds: accepted.timeout_seconds ?? 5,
+      });
+
+      if (result.result === 'Success') {
+        toast(`Đã ${nextAction === 'ON' ? 'bật' : 'tắt'} ${device.name} thành công.`, 'success');
+      } else {
+        toast(`${device.name}: ${result.error_msg || result.result}`, 'error');
+      }
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      pendingToggles.delete(index);
+      await Promise.all([refreshStatus(), refreshActivity()]);
+      refreshDeviceList();
+    }
+  }
+
+  async function refreshActivity() {
+    try {
+      activity = (await getDeviceActions({ size: 5 })).items;
+      const body = document.getElementById('activityBody');
+      if (body) body.innerHTML = activityRowsHtml();
+
+    } catch {
+      // Giữ nguyên danh sách cũ nếu tải lỗi.
+    }
+  }
+
+  function refreshDeviceList() {
+    const list = document.getElementById('deviceList');
+    if (!list) return;
+    list.innerHTML = deviceListHtml();
+    list.querySelectorAll('[data-switch]').forEach((btn) => {
+      btn.onclick = () => handleToggle(Number(btn.dataset.switch));
+    });
+  }
+
+  /* ─── Cập nhật gần realtime ────────────────────────────── */
+  const POLL_INTERVAL = 5000;
+  let sensorPollingTimer = null;
+
+  function refreshSensorUi() {
+    const cards = document.getElementById('sensorCards');
+    const banners = document.getElementById('banners');
+    if (!cards || !banners) return;
+    cards.innerHTML = sensorCardsHtml();
+    banners.innerHTML = bannersHtml();
+    bindEvents();
+    updateChart();
+  }
+
+  async function poll() {
+    try {
+      const [nextReading, nextSeries] = await Promise.all([
+        getLatestSensor(),
+        getSensorSeries({ bucket: '1m', points: 30 }),
+      ]);
+
+      reading = nextReading;
+      series = nextSeries;
+      sensorError = null;
+    } catch (error) {
+      sensorError = error.message;
+    }
+
+    refreshSensorUi();
+  }
+
+  onMessage('sensor', (event) => {
+    if (getState().deviceId && event.device_id !== getState().deviceId) return;
+
+    reading = {
+      deviceId: event.device_id,
+      temp: event.temperature ?? reading.temp,
+      humidity: event.humidity ?? reading.humidity,
+      light: event.light ?? reading.light,
+      updatedAt: event.timestamp,
+    };
+    sensorError = null;
+    series = [...series, {
+      time: formatHourMinute(event.timestamp),
+      timestamp: event.timestamp,
+      temp: event.temperature ?? null,
+      humidity: event.humidity ?? null,
+      light: event.light ?? null,
+    }].slice(-30);
+    refreshSensorUi();
+  });
+
+  onConnectionState(({ fallbackActive }) => {
+    if (fallbackActive && sensorPollingTimer === null) {
+      poll();
+      sensorPollingTimer = window.setInterval(poll, POLL_INTERVAL);
+    } else if (!fallbackActive && sensorPollingTimer !== null) {
+      window.clearInterval(sensorPollingTimer);
+      sensorPollingTimer = null;
+    }
+  });
+
+  subscribe(() => {
+    const banners = document.getElementById('banners');
+    if (!banners) return;
+    banners.innerHTML = bannersHtml();
+    refreshDeviceList();
+    bindEvents();
+  });
+
+  render();
+  await Promise.all([poll(), refreshActivity()]);
+}
+  </script>
+</body>
+</html>
