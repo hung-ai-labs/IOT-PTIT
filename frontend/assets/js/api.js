@@ -53,20 +53,28 @@ export function initialsOf(fullName = '') {
  * Gọi API, tự gắn Bearer token và chuyển 401 về trang đăng nhập.
  * @param {object} options.skipAuthRedirect bỏ qua chuyển hướng (dùng ở trang đăng nhập)
  */
-async function request(path, { method = 'GET', body, skipAuthRedirect = false } = {}) {
+async function request(path, { method = 'GET', body, skipAuthRedirect = false, timeoutMs = 15000 } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   let response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch {
+    if (controller.signal.aborted) {
+      throw new Error('Máy chủ phản hồi quá lâu. Kiểm tra Docker Desktop và kết nối PostgreSQL, rồi bấm Thử lại.');
+    }
     throw new Error('Không kết nối được tới máy chủ. Kiểm tra backend đã chạy chưa.');
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (response.status === 401 && !skipAuthRedirect) {
@@ -114,7 +122,7 @@ export async function logout() {
 }
 
 export async function getProfile() {
-  return request('/auth/me');
+  return request('/auth/me', { timeoutMs: 8000 });
 }
 
 export async function updateProfile(payload) {
@@ -149,11 +157,11 @@ export async function getSensorSeries({ deviceId, bucket = '1m', points = 30 } =
  * (SRS §2.6). Trả về `{items, page, size, total, totalPages}`.
  */
 export async function getSensorRecords({
-  deviceId, sensorType, from, to, page = 1, size = 20, sort = 'timestamp:desc',
+  deviceId, sensorType, q, field, from, to, page = 1, size = 20, sort = 'timestamp:desc',
 } = {}) {
   if (!SHOW_IOT_DATA) return { items: [], page: 1, size, total: 0, totalPages: 1 };
   const data = await request(
-    `/sensors${query({ device_id: deviceId, sensor_type: sensorType, from, to, page, size, sort })}`
+    `/sensors${query({ device_id: deviceId, sensor_type: sensorType, q, field, from, to, page, size, sort })}`
   );
   return {
     items: data.items,
@@ -164,28 +172,68 @@ export async function getSensorRecords({
   };
 }
 
-/** Danh sách device_id đang có dữ liệu, để đổ vào ô lọc thiết bị. */
-export async function getSensorDevices() {
-  if (!SHOW_IOT_DATA) return [];
-  const data = await request('/sensors?size=100&sort=timestamp:desc');
-  return [...new Set(data.items.map((item) => item.device_id))];
+let deviceOptionsPromise;
+const inlineDeviceOptions = document.getElementById('deviceOptionsTemplate')?.content.querySelector('select')?.innerHTML;
+
+/** Shared HTML options drive the device cards and history filter. */
+export function getDeviceOptions() {
+  if (!deviceOptionsPromise) {
+    deviceOptionsPromise = loadDeviceOptions().catch((error) => {
+      deviceOptionsPromise = null;
+      throw error;
+    });
+  }
+  return deviceOptionsPromise;
+}
+
+async function loadDeviceOptions() {
+  let markup = inlineDeviceOptions;
+  if (!markup) {
+    const response = await fetch(new URL('../../index.html', import.meta.url), { cache: 'no-cache' });
+    if (!response.ok) throw new Error('Không tải được danh sách đèn.');
+    const source = new DOMParser().parseFromString(await response.text(), 'text/html');
+    markup = source.getElementById('deviceOptionsTemplate')?.content.querySelector('select')?.innerHTML;
+  }
+  if (!markup) throw new Error('Thiếu danh sách đèn trong index.html.');
+  const select = document.createElement('select');
+  select.innerHTML = markup;
+  const seen = new Set();
+  return [...select.options].map((option) => {
+    const target = option.value.trim();
+    if (seen.has(target)) throw new Error(`Mã đèn "${target}" bị trùng. Mỗi đèn cần một value riêng.`);
+    seen.add(target);
+    return { target, name: option.textContent.trim() };
+  });
 }
 
 /* ─── Thiết bị ───────────────────────────────────────────── */
 /** Ba thiết bị chấp hành kèm trạng thái ON/OFF và kết nối. */
 export async function getDevices(deviceId) {
-  const devices = await request(`/devices${query({ device_id: deviceId })}`);
-  return SHOW_IOT_DATA ? devices : devices.map((device) => ({
-    ...device, state: null, connection: null, last_command: null, last_seen: null,
-  }));
+  const options = await getDeviceOptions();
+  const serverDevices = SHOW_IOT_DATA
+    ? await request(`/devices${query({ device_id: deviceId })}`)
+    : [];
+  return options.filter((option) => option.target).map((option) => {
+    const registered = serverDevices.find((device) => device.target === option.target);
+    const device = registered
+      ? { ...registered, name: option.name, previewOnly: false }
+      : {
+          target: option.target, name: option.name, icon: '💡',
+          device_id: 'Chỉ hiển thị', gpio: '—', state: null, connection: null,
+          last_command: null, last_seen: null, previewOnly: true,
+        };
+    return SHOW_IOT_DATA ? device : {
+      ...device, state: null, connection: null, last_command: null, last_seen: null,
+    };
+  });
 }
 
-/** Chi tiết một ESP: IP, RSSI, uptime, MQTT topic (F10). */
-export async function getDeviceDetail(deviceId) {
-  const device = await request(`/devices/${encodeURIComponent(deviceId)}`);
+/** Chi tiết một đèn và thông tin ESP chứa đèn đó (F10). */
+export async function getDeviceDetail(deviceId, target) {
+  const device = await request(`/devices/${encodeURIComponent(deviceId)}/targets/${encodeURIComponent(target)}`);
   return SHOW_IOT_DATA ? device : {
-    ...device, connection: null, ip: null, rssi: null, uptime: null, last_seen: null,
-    targets: device.targets.map((target) => ({ ...target, state: null, connection: null, last_command: null, last_seen: null })),
+    ...device, state: null, connection: null, ip: null, rssi: null, uptime: null,
+    last_command: null, last_seen: null,
   };
 }
 
@@ -249,11 +297,11 @@ export async function waitForAction(actionId, { timeoutSeconds = 5, interval = 5
 
 /* ─── Lịch sử thao tác ───────────────────────────────────── */
 export async function getDeviceActions({
-  deviceId, target, action, result, from, to, page = 1, size = 20, sort = 'timestamp:desc',
+  deviceId, target, action, result, q, from, to, page = 1, size = 20, sort = 'timestamp:desc',
 } = {}) {
   if (!SHOW_IOT_DATA) return { items: [], page: 1, size, total: 0, totalPages: 1 };
   const data = await request(
-    `/device-actions${query({ device_id: deviceId, target, action, result, from, to, page, size, sort })}`
+    `/device-actions${query({ device_id: deviceId, target, action, result, q, from, to, page, size, sort })}`
   );
   return {
     items: data.items,

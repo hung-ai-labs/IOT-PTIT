@@ -28,10 +28,12 @@
 - 3 stat card: Nhiệt độ, Độ ẩm, Ánh sáng → `GET /sensors/latest`, cập nhật realtime qua WS.
 - Biểu đồ đường theo thời gian → `GET /sensors/series?bucket=1m`, đẩy điểm mới từ WS.
 - Khu điều khiển 3 thiết bị (switch) → dùng chung component với S5.
-- "Hoạt động gần đây" → `GET /device-actions?size=5&sort=timestamp:desc`.
+- ~~"Hoạt động gần đây"~~ — đã gỡ 07/10/2026 theo yêu cầu; xem đầy đủ ở S6.
 
 ### S4 — Dữ liệu cảm biến
-- Thanh lọc: thiết bị (select), loại cảm biến (select), từ ngày/giờ, đến ngày/giờ, ô tìm kiếm.
+- Thanh tìm kiếm (07/10/2026): một ô nhập + select phạm vi (Tất cả thông tin / Thời gian /
+  Nhiệt độ / Độ ẩm / Ánh sáng) + nút **Tìm** + select sắp xếp, kèm dòng gợi ý định dạng.
+  Gõ đúng chuỗi đang nhìn thấy trên bảng; backend lo phần so khớp (`q` + `field`).
 - Bảng: ID · Thiết bị · Loại · Giá trị · Đơn vị · Thời gian. Header click để sort.
 - Phân trang dưới bảng. Trạng thái rỗng + trạng thái loading (skeleton).
 
@@ -43,7 +45,8 @@
 - Nếu ESP offline / MQTT disconnected → switch disabled + banner cảnh báo (F13).
 
 ### S6 — Lịch sử thao tác
-- Lọc: thiết bị, đối tượng, hành động ON/OFF, kết quả, khoảng thời gian.
+- Thanh tìm kiếm (07/10/2026): ô nhập tự do + select Thiết bị / Hành động / Kết quả +
+  nút **Tìm** + select sắp xếp. Ô nhập khớp cả nhãn tiếng Việt lẫn mã gốc (`q`).
 - Bảng: Mã thiết bị · Đối tượng · Hành động · Người thực hiện · Kết quả (badge màu) · Thời gian.
 - Badge: Pending (xám) · Success (xanh) · Failed (đỏ) · Timeout (cam).
 

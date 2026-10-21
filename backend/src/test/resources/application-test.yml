@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:iot;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;NON_KEYWORDS=VALUE
+    username: sa
+    password: ''
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+iot:
+  secret: integration-test-secret-key-only-do-not-use-in-production
+  mqtt-enabled: false
+  command-timeout-seconds: 0.3

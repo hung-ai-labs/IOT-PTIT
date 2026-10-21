@@ -8,7 +8,7 @@ không build step) theo SRS §1.2. Thiết kế lấy từ Figma Make
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d
-cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000
+cd backend && mvn spring-boot:run
 ```
 
 Số liệu cảm biến và phản hồi điều khiển lấy từ ESP32 thật qua MQTT.
@@ -21,7 +21,7 @@ Mở http://localhost:8000/login.html
 | `admin@ptit.edu.vn` | `123456` | ADMIN |
 | `user@ptit.edu.vn` | `123456` | USER |
 
-> FastAPI phục vụ luôn frontend tĩnh nên không cần server riêng.
+> Spring Boot phục vụ luôn frontend tĩnh nên không cần server riêng.
 > Chưa có tài khoản? Bấm **Đăng ký** trên trang đăng nhập — tài khoản mới lưu thẳng vào PostgreSQL.
 
 ## Cấu trúc
@@ -192,5 +192,24 @@ Responsive < 900px mới ở mức cơ bản (SRS không yêu cầu mobile).
 ## Tài nguyên dự án
 
 Trang hồ sơ có mục GitHub, Figma, Project Docs và API Document. Các liên kết nằm trong
-`PROJECT_RESOURCES` ở `assets/js/config.js`. Figma đang để `href: null` và không có link giả;
-thay bằng URL thật khi có thiết kế. Thông tin cá nhân nằm ngay dưới Lịch sử thao tác trong menu.
+`PROJECT_RESOURCES` ở `assets/js/config.js`. Figma đã được cập nhật bằng URL người dùng cung cấp ngày 07/10/2026. Thông tin cá nhân nằm ngay dưới Lịch sử thao tác trong menu.
+
+## Sửa giao diện bằng HTML trực tiếp
+
+- **Đèn:** thêm `<option value="orange">Đèn cam</option>` trong `<template id="deviceOptionsTemplate">`
+  đầu `index.html`. Dashboard, trang điều khiển và bộ lọc lịch sử dùng chung danh sách này.
+  Mỗi value phải khác nhau. Đèn chỉ có ở frontend giữ trạng thái trống và công tắc khoá.
+- **Thanh tìm kiếm cảm biến:** sửa `<template id="sensorFiltersTemplate">` đầu `sensors.html`.
+  Mỗi `<option>` của `#fieldFilter` là một phạm vi tìm kiếm — giá trị phải nằm trong
+  `SensorService.FIELDS` phía backend, nếu không API trả 422.
+- **Thanh tìm kiếm lịch sử:** sửa `<template id="historyFiltersTemplate">` đầu `history.html`.
+  Ô `#searchInput` gửi thẳng tham số `q`; backend nhận cả nhãn tiếng Việt lẫn mã gốc
+  (`Đèn đỏ` ↔ `red`, `Bật` ↔ `ON`, `Thành công` ↔ `Success`).
+- **Thông tin cá nhân:** thêm `<div data-label="Căn cước công dân">Chưa cập nhật</div>` vào
+  `<template id="profileFieldsTemplate">` đầu `profile.html`. Các trường `data-field` hiện có
+  lấy giá trị từ tài khoản, bốn trường có `data-edit` vẫn chỉnh sửa/lưu qua API.
+
+Lưu HTML và tải lại trình duyệt, không cần khởi động lại Java khi chạy với frontend ngoài JAR.
+Các dòng mới thêm dùng để hiển thị. Muốn trường mới được lưu vào tài khoản, bộ lọc mới truy vấn
+được dữ liệu thật hoặc đèn mới điều khiển thật thì cần nối thêm backend tương ứng.
+Không tạo số liệu cảm biến hoặc lịch sử mẫu.

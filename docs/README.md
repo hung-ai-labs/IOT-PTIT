@@ -1,5 +1,7 @@
 # Tài liệu kế hoạch — Hệ thống Giám sát và Điều khiển IoT
 
+Backend hiện dùng Spring Boot theo xác nhận ngày 07/10/2026. Đọc [08 — Chuyển đổi Spring Boot](08-SPRING-BOOT-MIGRATION.md) và [backend/README.md](../backend/README.md) trước. Các kế hoạch cũ giữ để truy vết SRS.
+
 Đọc theo thứ tự khi mới vào dự án:
 
 | File | Nội dung |

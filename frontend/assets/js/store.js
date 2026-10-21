@@ -18,6 +18,7 @@ let state = {
   deviceId: null,
   systemStatus: null,
   loaded: false,
+  deviceError: null,
 };
 
 let statusPollingTimer = null;
@@ -38,28 +39,29 @@ export function subscribe(listener) {
 /** Có được phép gửi lệnh không (F13). */
 export const canControl = () => state.esp32Online && state.mqttConnected;
 
-/** Thiết bị theo mã đối tượng ('led' | 'fan' | 'ac'). */
+/** Thiết bị theo mã đối tượng ('red' | 'green' | 'yellow'). */
 export const getDevice = (target) => state.devices.find((device) => device.target === target);
 
 /** Đồng bộ trạng thái với server. Gọi lúc mở trang và định kỳ. */
 export async function refreshStatus() {
   try {
     if (!SHOW_IOT_DATA) {
-      setState({ devices: await getDevices(), esp32Online: false, mqttConnected: false, systemStatus: null, loaded: true });
+      setState({ devices: await getDevices(), esp32Online: false, mqttConnected: false, systemStatus: null, loaded: true, deviceError: null });
       return state;
     }
     const [devices, systemStatus] = await Promise.all([getDevices(), getSystemStatus()]);
     setState({
       devices,
+      deviceError: null,
       mqttConnected: systemStatus.mqtt.status === 'connected',
       esp32Online: systemStatus.esp.status === 'online',
       deviceId: systemStatus.esp.device_id,
       systemStatus,
       loaded: true,
     });
-  } catch {
+  } catch (error) {
     // Không tới được server: coi như mất kết nối, giữ nguyên danh sách thiết bị cũ.
-    setState({ esp32Online: false, mqttConnected: false, loaded: true });
+    setState({ esp32Online: false, mqttConnected: false, loaded: true, deviceError: error.message });
   }
   return state;
 }
@@ -73,7 +75,7 @@ onMessage('system_status', (systemStatus) => {
     deviceId: systemStatus.esp.device_id,
     devices: state.devices.map((device) => ({
       ...device,
-      connection: device.device_id === systemStatus.esp.device_id && online ? 'online' : 'offline',
+      connection: device.previewOnly ? null : device.device_id === systemStatus.esp.device_id && online ? 'online' : 'offline',
       last_seen: systemStatus.esp.last_seen,
     })),
     loaded: true,
@@ -84,7 +86,7 @@ onMessage('device_state', (event) => {
   if (event.result !== 'Success') return;
   setState({
     devices: state.devices.map((device) => (
-      device.device_id === event.device_id && device.target === event.target
+      !device.previewOnly && device.device_id === event.device_id && device.target === event.target
         ? { ...device, state: event.state }
         : device
     )),

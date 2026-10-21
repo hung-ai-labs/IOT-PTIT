@@ -1,5 +1,7 @@
 # 06 — Lộ trình triển khai
 
+> Cập nhật 07/10/2026: backend đã chuyển sang Spring Boot theo xác nhận của người dùng. Mục dưới giữ kế hoạch cũ để đối chiếu; xem [08-SPRING-BOOT-MIGRATION.md](08-SPRING-BOOT-MIGRATION.md) và [backend/README.md](../backend/README.md) để chạy và sửa code hiện tại.
+
 Thứ tự này cho phép chạy end-to-end sớm (không cần chờ ESP32 thật, không cần chờ Figma).
 Đánh dấu `[x]` khi xong.
 
@@ -57,7 +59,7 @@ Thứ tự này cho phép chạy end-to-end sớm (không cần chờ ESP32 th�
 - [x] `services/action_service.py` — tầng DB dùng chung cho router, handler và registry
 - [x] `mqtt/registry.py` — `PendingCommandRegistry` dùng `threading.Timer`, timeout 5s
 - [x] `services/control_service.py` — nghiệp vụ gửi lệnh và đọc trạng thái
-- [x] `POST /devices/{device_id}/actions` (202 + Pending), `GET /devices`, `GET /devices/{id}`
+- [x] `POST /devices/{device_id}/actions` (202 + Pending), `GET /devices`, `GET /devices/{id}/targets/{target}`
 - [x] Handler `iot/feedback` → chốt result + cập nhật cache; phản hồi đến muộn **không** ghi đè Timeout
 - [x] Timer timeout → `result='Timeout'` kèm `error_msg`
 - [x] Chặn khi MQTT down (503) / ESP offline (409) / lệnh đang chạy (409)

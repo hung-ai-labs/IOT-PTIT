@@ -13,6 +13,15 @@
   <script src="assets/vendor/chart.umd.js"></script>
 </head>
 <body>
+  <!-- Add one option here to display another device on all three pages. -->
+  <template id="deviceOptionsTemplate">
+    <select>
+      <option value="">Tất cả thiết bị</option>
+      <option value="red">Đèn đỏ</option>
+      <option value="green">Đèn xanh</option>
+      <option value="yellow">Đèn vàng</option>
+    </select>
+  </template>
   <script type="module">
 // dashboard.js — S3 Tổng quan (SRS Hình 3.3)
 
@@ -22,7 +31,7 @@ import { initLayout } from './assets/js/layout.js';
 import { statusDot, badge, switchControl, toast } from './assets/js/ui.js';
 import { getState, subscribe, refreshStatus, canControl } from './assets/js/store.js';
 import { formatTemp, formatHumidity, formatLight, formatTime, formatHourMinute, escapeHtml } from './assets/js/format.js';
-import { getLatestSensor, getSensorSeries, getDeviceActions, sendDeviceAction, waitForAction } from './assets/js/api.js';
+import { getLatestSensor, getSensorSeries, sendDeviceAction, waitForAction } from './assets/js/api.js';
 import { onConnectionState, onMessage } from './assets/js/ws.js';
 
 if (requireAuth()) {
@@ -31,13 +40,11 @@ if (requireAuth()) {
   /* ─── Trạng thái cục bộ của trang ──────────────────────── */
   let reading = { temp: null, humidity: null, light: null, updatedAt: null };
   let series = [];
-  let activity = [];
   let sensorError = null;
   let selectedSensor = 'temp';
   let chart = null;
   const pendingToggles = new Set();
 
-  const RESULT_BADGE = { Success: 'success', Failed: 'error', Timeout: 'warning', Pending: 'muted' };
 
   const SENSOR_CARDS = [
     { key: 'temp',     label: 'Nhiệt độ', icon: '🌡️', color: 'var(--color-temp)',     bg: 'var(--alpha-temp-bg)',     format: formatTemp },
@@ -59,16 +66,6 @@ if (requireAuth()) {
             <div class="banner__text">Không thể gửi lệnh điều khiển cho đến khi thiết bị kết nối lại.</div>
           </div>
           <button type="button" class="btn btn--outline-danger" data-action="reconnect">Thử kết nối lại</button>
-        </div>`;
-    }
-    if (reading.temp !== null && reading.temp > 30) {
-      html += `
-        <div class="banner banner--warning">
-          <div>
-            <div class="banner__title">⚠ Cảnh báo nhiệt độ cao</div>
-            <div class="banner__text">Nhiệt độ đã vượt ngưỡng 30°C.</div>
-          </div>
-
         </div>`;
     }
     return html;
@@ -99,8 +96,9 @@ if (requireAuth()) {
   }
 
   function deviceListHtml() {
-    const { devices, loaded } = getState();
+    const { devices, loaded, deviceError } = getState();
     if (!loaded) return '<div class="empty-state"><span class="spinner"></span></div>';
+    if (deviceError) return `<div class="empty-state__hint">${escapeHtml(deviceError)}</div>`;
     if (devices.length === 0) {
       return '<div class="empty-state__hint">Chưa nhận được thiết bị nào.</div>';
     }
@@ -126,19 +124,6 @@ if (requireAuth()) {
           })}
         </div>`;
     }).join('');
-  }
-
-  function activityRowsHtml() {
-    if (activity.length === 0) {
-      return '<tr><td colspan="4" class="text-muted">Chưa có thao tác nào.</td></tr>';
-    }
-    return activity.map((record) => `
-      <tr>
-        <td>${escapeHtml(record.target_label)}</td>
-        <td>${record.action === 'ON' ? 'Bật' : 'Tắt'}</td>
-        <td>${badge(RESULT_BADGE[record.result] ?? 'muted', record.result)}</td>
-        <td><span class="mono" style="font-size:var(--text-sm)">${formatTime(record.timestamp)}</span></td>
-      </tr>`).join('');
   }
 
   /* ─── Vẽ toàn trang ────────────────────────────────────── */
@@ -172,17 +157,6 @@ if (requireAuth()) {
             <div class="device-mini-list" id="deviceList">${deviceListHtml()}</div>
           </section>
         </div>
-
-        <section class="card" id="activitySection">
-          <div class="card__header">
-            <div class="card__title">Hoạt động gần đây</div>
-            <a class="btn btn--ghost" href="history.html">Xem tất cả →</a>
-          </div>
-          <table class="table table--compact">
-            <thead><tr><th>Thiết bị</th><th>Thao tác</th><th>Kết quả</th><th>Thời gian</th></tr></thead>
-            <tbody id="activityBody">${activityRowsHtml()}</tbody>
-          </table>
-        </section>
       </div>`;
 
     bindEvents();
@@ -295,7 +269,7 @@ if (requireAuth()) {
     });
 
     content.querySelectorAll('[data-switch]').forEach((btn) => {
-      btn.onclick = () => handleToggle(Number(btn.dataset.switch));
+      btn.onclick = () => handleToggle(Number(btn.dataset.switch), btn.dataset.deviceAction);
     });
   }
 
@@ -306,11 +280,11 @@ if (requireAuth()) {
    * Khác với trang Điều khiển thiết bị, ở đây không hiện hộp thoại xác nhận —
    * đúng như prototype Figma (Hình 3.3 chỉ có công tắc).
    */
-  async function handleToggle(index) {
+  async function handleToggle(index, nextAction) {
     const device = getState().devices[index];
-    if (!device || !canControl() || pendingToggles.has(index)) return;
+    if (!device || device.previewOnly || !canControl() || pendingToggles.has(index)) return;
 
-    const nextAction = device.state === 'ON' ? 'OFF' : 'ON';
+    if (!['ON', 'OFF'].includes(nextAction) || device.state === nextAction) return;
     pendingToggles.add(index);
     refreshDeviceList();
 
@@ -329,19 +303,8 @@ if (requireAuth()) {
       toast(error.message, 'error');
     } finally {
       pendingToggles.delete(index);
-      await Promise.all([refreshStatus(), refreshActivity()]);
+      await refreshStatus();
       refreshDeviceList();
-    }
-  }
-
-  async function refreshActivity() {
-    try {
-      activity = (await getDeviceActions({ size: 5 })).items;
-      const body = document.getElementById('activityBody');
-      if (body) body.innerHTML = activityRowsHtml();
-
-    } catch {
-      // Giữ nguyên danh sách cũ nếu tải lỗi.
     }
   }
 
@@ -350,7 +313,7 @@ if (requireAuth()) {
     if (!list) return;
     list.innerHTML = deviceListHtml();
     list.querySelectorAll('[data-switch]').forEach((btn) => {
-      btn.onclick = () => handleToggle(Number(btn.dataset.switch));
+      btn.onclick = () => handleToggle(Number(btn.dataset.switch), btn.dataset.deviceAction);
     });
   }
 
@@ -425,7 +388,7 @@ if (requireAuth()) {
   });
 
   render();
-  await Promise.all([poll(), refreshActivity()]);
+  await poll();
 }
   </script>
 </body>

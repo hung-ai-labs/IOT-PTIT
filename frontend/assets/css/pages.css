@@ -1,5 +1,21 @@
 /* pages.css — style riêng của từng màn hình */
 
+/* Keep history filters and pagination visible without vertical scrolling. */
+body.history-screen { height: 100dvh; overflow: hidden; }
+.history-screen .app { height: 100dvh; min-height: 0; }
+.history-screen .main,
+.history-screen .content { min-height: 0; }
+.history-screen .header { flex-shrink: 0; }
+.history-screen .page { height: 100%; min-height: 0; }
+.history-screen .filter-bar { flex-shrink: 0; }
+.history-screen #tableWrap { flex: 1; min-height: 0; }
+.history-screen .card--table {
+  height: 100%; min-height: 0; display: flex; flex-direction: column;
+}
+.history-table-scroll { flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+.history-table-scroll thead { position: sticky; top: 0; z-index: 1; background-color: var(--color-surface); }
+.history-screen .pagination { flex-shrink: 0; }
+
 /* ═══ Đăng nhập / Đăng ký ═══════════════════════════════════ */
 .auth {
   min-height: 100vh;
@@ -316,3 +332,12 @@
 .resource-card > svg { color: var(--color-text-muted); flex-shrink: 0; }
 @media (max-width: 1200px) { .project-resources__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .project-resources__grid { grid-template-columns: 1fr; } }
+
+/* Personal information and project resources share the desktop row. */
+.profile-page { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+.profile-page .profile { max-width: none; min-width: 0; }
+.profile-page .project-resources { min-width: 0; }
+.profile-page .project-resources__grid { grid-template-columns: 1fr; }
+@media (max-width: 900px) {
+  .profile-page { grid-template-columns: 1fr; }
+}

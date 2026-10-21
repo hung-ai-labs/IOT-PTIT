@@ -1,5 +1,7 @@
 # 01 — Kiến trúc & cấu trúc mã nguồn
 
+> Cập nhật 07/10/2026: backend đã chuyển sang Spring Boot theo xác nhận của người dùng. Mục dưới giữ kế hoạch cũ để đối chiếu; xem [08-SPRING-BOOT-MIGRATION.md](08-SPRING-BOOT-MIGRATION.md) và [backend/README.md](../backend/README.md) để chạy và sửa code hiện tại.
+
 ## 1. Sơ đồ khối
 
 ```

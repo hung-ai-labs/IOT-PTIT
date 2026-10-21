@@ -1,0 +1,40 @@
+server:
+  port: ${PORT:8000}
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/iot_db}
+    username: ${DB_USERNAME:iot}
+    password: ${DB_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    deserialization:
+      fail-on-unknown-properties: true
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+springdoc:
+  swagger-ui:
+    path: /docs
+  api-docs:
+    path: /openapi.json
+    version: OPENAPI_3_0
+iot:
+  secret: ${SECRET_KEY:}
+  token-hours: ${ACCESS_TOKEN_EXPIRE_HOURS:8}
+  mqtt-enabled: ${ENABLE_MQTT:true}
+  mqtt-host: ${MQTT_HOST:localhost}
+  mqtt-port: ${MQTT_PORT:1883}
+  mqtt-username: ${MQTT_USERNAME:}
+  mqtt-password: ${MQTT_PASSWORD:}
+  legacy-topics: ${MQTT_LEGACY_TOPICS:true}
+  command-timeout-seconds: ${COMMAND_TIMEOUT_SECONDS:5}
+  offline-seconds: ${DEVICE_OFFLINE_SECONDS:30}
+  heartbeat-seconds: ${HEARTBEAT_SECONDS:10}
+  cors-origins: ${CORS_ORIGINS:http://localhost:8000,http://localhost:5173}
+  frontend-dir: ${FRONTEND_DIR:../frontend}

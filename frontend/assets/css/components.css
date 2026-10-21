@@ -105,6 +105,23 @@
 .status-dot--pulse { animation: pulse 2s infinite; box-shadow: none; }
 
 /* ─── Công tắc ON/OFF ─────────────────────────────────────── */
+.device-actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
+.device-action {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-card);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.device-action.is-active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.device-action:disabled { opacity: 0.5; }
+
 .switch {
   width: 48px; height: 26px;
   border-radius: 13px;
@@ -221,6 +238,8 @@
   padding: var(--space-6) var(--space-7);
   display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center;
 }
+.filter-bar__search { flex: 1; min-width: 220px; }
+.filter-bar__hint { flex-basis: 100%; font-size: var(--text-sm); color: var(--color-text-muted); }
 
 /* ─── Banner cảnh báo ────────────────────────────────────── */
 .banner {

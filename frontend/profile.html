@@ -12,6 +12,16 @@
   <link rel="stylesheet" href="assets/css/pages.css">
 </head>
 <body>
+  <!-- Add one data-label row to display another personal information item. -->
+  <template id="profileFieldsTemplate">
+    <div data-field="full_name" data-label="Họ và tên" data-edit="text" data-max="100" data-required></div>
+    <div data-field="student_id" data-label="Mã sinh viên" data-edit="text" data-max="30"></div>
+    <div data-field="school" data-label="Trường" data-edit="text" data-max="200"></div>
+    <div data-field="contact_email" data-label="Email liên hệ" data-edit="email" data-max="150"></div>
+    <div data-field="email" data-label="Email đăng nhập"></div>
+    <div data-field="role" data-label="Vai trò"></div>
+    <div data-field="created_at" data-label="Ngày tạo tài khoản" data-format="datetime"></div>
+  </template>
   <script type="module">
 import { PROJECT_RESOURCES } from './assets/js/config.js';
 import { icons } from './assets/js/icons.js';
@@ -22,8 +32,17 @@ import { escapeHtml, formatDateTime } from './assets/js/format.js';
 import { getProfile, updateProfile } from './assets/js/api.js';
 
 if (requireAuth()) {
+  const rowDefinitions = [...document.getElementById('profileFieldsTemplate').content.querySelectorAll('[data-label]')].map((row) => ({
+    key: row.dataset.field,
+    label: row.dataset.label,
+    type: row.dataset.edit,
+    max: Number(row.dataset.max || 150),
+    required: row.hasAttribute('data-required'),
+    format: row.dataset.format,
+    fallback: row.textContent.trim() || 'Chưa cập nhật',
+  }));
   const content = initLayout('profile');
-  content.innerHTML = '<div class="page page--center"><div class="profile">Đang tải thông tin cá nhân…</div><section class="card project-resources" id="projectResources"></section></div>';
+  content.innerHTML = '<div class="page profile-page"><div class="profile">Đang tải thông tin cá nhân…</div><section class="card project-resources" id="projectResources"></section></div>';
   const container = content.querySelector('.profile');
   content.querySelector('#projectResources').innerHTML = `
     <div class="card__header"><div>
@@ -41,19 +60,15 @@ if (requireAuth()) {
     }).join('')}</div>`;
 
   let user;
-  const fields = [
-    { key: 'full_name', label: 'Họ và tên', max: 100, required: true },
-    { key: 'student_id', label: 'Mã sinh viên', max: 30 },
-    { key: 'school', label: 'Trường', max: 200 },
-    { key: 'contact_email', label: 'Email liên hệ', max: 150, type: 'email' },
-  ];
+  const editableKeys = new Set(['full_name', 'student_id', 'school', 'contact_email']);
+  const fields = rowDefinitions.filter((field) => field.type && editableKeys.has(field.key));
 
   function render() {
-    const rows = [
-      ...fields.map(({ key, label }) => [label, user[key] || 'Chưa cập nhật']),
-      ['Email đăng nhập', user.email], ['Vai trò', user.role],
-      ['Ngày tạo tài khoản', formatDateTime(user.created_at)],
-    ].map(([label, value]) => detailRow(label, escapeHtml(value), { size: 'md' })).join('');
+    const rows = rowDefinitions.map((field) => {
+      const value = field.key ? user[field.key] : null;
+      const display = value ? (field.format === 'datetime' ? formatDateTime(value) : value) : field.fallback;
+      return detailRow(field.label, escapeHtml(display), { size: 'md' });
+    }).join('');
     container.innerHTML = `
       <section class="card card--lg profile__head">
         <div class="profile__avatar">${avatar(user.full_name, 'lg')}</div>
@@ -96,6 +111,7 @@ if (requireAuth()) {
       event.preventDefault();
       const data = new FormData(form);
       const payload = Object.fromEntries(fields.map(({ key }) => [key, String(data.get(key)).trim() || null]));
+      if (!('full_name' in payload)) payload.full_name = user.full_name;
       error.classList.add('hidden');
       fieldset.disabled = true;
       save.textContent = 'Đang lưu…';
@@ -110,7 +126,7 @@ if (requireAuth()) {
         save.textContent = 'Lưu thay đổi';
       }
     };
-    container.querySelector('#profile-full_name').focus();
+    container.querySelector('#profile-full_name')?.focus();
   }
 
   try {

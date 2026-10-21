@@ -67,13 +67,14 @@ if (requireAuth()) {
   }
 
   function cardsHtml() {
-    const { devices, loaded } = getState();
+    const { devices, loaded, deviceError } = getState();
 
     if (!loaded) {
       return `<div class="card"><div class="empty-state">
         <div class="empty-state__icon"><span class="spinner"></span></div>
         <div class="empty-state__title">Đang tải thiết bị...</div></div></div>`;
     }
+    if (deviceError) return `<div class="card"><div class="empty-state"><div class="empty-state__title">Không tải được danh sách đèn</div><div class="empty-state__hint">${escapeHtml(deviceError)}</div></div></div>`;
     if (devices.length === 0) {
       return `<div class="card">${
         `<div class="empty-state"><div class="empty-state__icon">🔌</div>
@@ -120,7 +121,7 @@ if (requireAuth()) {
 
   /* ─── Modal chi tiết thiết bị (F10) ────────────────────── */
   async function openDetail(index) {
-    const device = getState().devices[index];
+    let device = getState().devices[index];
     if (!device) return;
 
     const layer = openLayerWith(
@@ -134,7 +135,10 @@ if (requireAuth()) {
 
     let esp = null;
     try {
-      esp = await getDeviceDetail(device.device_id);
+      if (!device.previewOnly) {
+        esp = await getDeviceDetail(device.device_id, device.target);
+        device = { ...device, ...esp, name: device.name };
+      }
     } catch (error) {
       toast(error.message, 'error');
     }
@@ -169,12 +173,13 @@ if (requireAuth()) {
   }
 
   /* ─── Xác nhận trước khi gửi (F14, Hình 3.9) ───────────── */
-  function openConfirm(index) {
+  function openConfirm(index, requestedAction) {
     const device = getState().devices[index];
     if (!device) return;
 
-    const isOn = device.state === 'ON';
-    const verb = isOn ? 'tắt' : 'bật';
+    const action = requestedAction ?? (device.state === 'ON' ? 'OFF' : 'ON');
+    if (!['ON', 'OFF'].includes(action) || device.state === action) return;
+    const verb = action === 'OFF' ? 'tắt' : 'bật';
 
     const layer = openLayerWith(
       `<div class="modal__icon">⚡</div>
@@ -190,7 +195,7 @@ if (requireAuth()) {
 
     layer.panel.querySelector('#confirmSend').addEventListener('click', () => {
       layer.close();
-      runCommand(device, isOn ? 'OFF' : 'ON');
+      runCommand(device, action);
     });
   }
 
@@ -279,7 +284,7 @@ if (requireAuth()) {
           toast('Không thể gửi lệnh khi thiết bị hoặc MQTT mất kết nối.', 'error');
           return;
         }
-        openConfirm(Number(button.dataset.switch));
+        openConfirm(Number(button.dataset.switch), button.dataset.deviceAction);
       });
     });
 

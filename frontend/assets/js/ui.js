@@ -93,16 +93,14 @@ export const mono = (text) =>
 
 /** Công tắc ON/OFF kèm nhãn. `index` dùng để nhận diện khi bắt sự kiện. */
 export function switchControl({ on, disabled = false, loading = false, index = 0, label = true, unknown = false }) {
-  const cls = ['switch', loading ? 'is-loading' : ''].filter(Boolean).join(' ');
-  const button =
-    `<button type="button" class="${cls}" role="switch" aria-checked="${on}" ` +
-    `data-switch="${index}" ${disabled ? 'disabled' : ''} title="${unknown ? 'Chưa hiển thị trạng thái' : on ? 'ON' : 'OFF'}">` +
-    `<span class="switch__knob"></span><span class="switch__spinner"></span></button>`;
-  if (!label) return button;
-  return (
-    `<div class="switch-group">${button}` +
-    `<span class="switch-group__label${on ? ' is-on' : ''}">${unknown ? '—' : on ? 'ON' : 'OFF'}</span></div>`
-  );
+  return `<div class="device-actions" role="group" aria-label="Bật hoặc tắt thiết bị" aria-busy="${loading}">
+    ${['ON', 'OFF'].map((action) => {
+      const active = !unknown && (action === 'ON' ? on : !on);
+      return `<button type="button" class="device-action${active ? ' is-active' : ''}"
+        aria-pressed="${active}" data-switch="${index}" data-device-action="${action}"
+        ${disabled || loading ? 'disabled' : ''}>${action}</button>`;
+    }).join('')}
+  </div>`;
 }
 
 /** Trạng thái rỗng của bảng/danh sách */

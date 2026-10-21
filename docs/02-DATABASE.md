@@ -1,5 +1,7 @@
 # 02 — Thiết kế cơ sở dữ liệu (PostgreSQL)
 
+> Cập nhật 07/10/2026: backend đã chuyển sang Spring Boot theo xác nhận của người dùng. Mục dưới giữ kế hoạch cũ để đối chiếu; xem [08-SPRING-BOOT-MIGRATION.md](08-SPRING-BOOT-MIGRATION.md) và [backend/README.md](../backend/README.md) để chạy và sửa code hiện tại.
+
 Theo SRS §4.2: 3 bảng `users`, `data_sensor`, `device_actions`.
 Phần "Bổ sung" bên dưới là các cột/index cần thiết để hiện thực F09–F12 mà SRS chưa nêu chi tiết.
 
@@ -49,7 +51,7 @@ CREATE INDEX idx_sensor_time   ON data_sensor (timestamp);
 CREATE TABLE device_actions (
     id         BIGSERIAL PRIMARY KEY,
     device_id  VARCHAR(50) NOT NULL,
-    target     VARCHAR(20) NOT NULL CHECK (target IN ('led','fan','ac')),
+    target     VARCHAR(20) NOT NULL CHECK (target IN ('red','green','yellow')),
     action     VARCHAR(20) NOT NULL CHECK (action IN ('ON','OFF')),
     issued_by  BIGINT      REFERENCES users(id) ON DELETE SET NULL,
     result     VARCHAR(20) NOT NULL DEFAULT 'Pending'

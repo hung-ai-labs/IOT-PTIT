@@ -11,7 +11,34 @@
   <link rel="stylesheet" href="assets/css/components.css">
   <link rel="stylesheet" href="assets/css/pages.css">
 </head>
-<body>
+<body class="history-screen">
+  <!-- Device options come from index.html; other filters are editable below. -->
+  <template id="historyFiltersTemplate">
+<div class="filter-bar">
+      <input class="input filter-bar__search" type="search" id="searchInput"
+             placeholder="Nhập ngày hoặc giờ cần tìm…" aria-label="Tìm theo thời gian">
+      <select class="select" id="targetFilter" aria-label="Lọc theo thiết bị">
+      </select>
+      <select class="select" id="actionFilter" aria-label="Lọc theo hành động">
+        <option value="">Hành động: Tất cả</option>
+        <option value="ON">Bật</option>
+        <option value="OFF">Tắt</option>
+      </select>
+      <select class="select" id="resultFilter" aria-label="Lọc theo kết quả">
+        <option value="">Kết quả: Tất cả</option>
+        <option value="Success">Thành công</option>
+        <option value="Failed">Thất bại</option>
+        <option value="Timeout">Quá hạn</option>
+        <option value="Pending">Đang xử lý</option>
+      </select>
+      <button type="button" class="btn btn--primary" id="applyFilter">Tìm</button>
+      <select class="select" id="sortFilter" aria-label="Sắp xếp">
+        <option value="timestamp:desc">Mới nhất</option>
+        <option value="timestamp:asc">Cũ nhất</option>
+      </select>
+      <div class="filter-bar__hint">Định dạng thời gian: HH:mm, HH:mm:ss hoặc DD/MM/YYYY HH:mm</div>
+    </div>
+  </template>
   <script type="module">
 // history.js — S6 Lịch sử thao tác (SRS Hình 3.6)
 //
@@ -20,11 +47,16 @@
 import { requireAuth } from './assets/js/auth.js';
 import { initLayout } from './assets/js/layout.js';
 import { badge, emptyState, pagination, bindPagination, toast } from './assets/js/ui.js';
-import { escapeHtml, formatTime, formatDateTime } from './assets/js/format.js';
-import { getDeviceActions } from './assets/js/api.js';
+import { escapeHtml, formatDateTime } from './assets/js/format.js';
+import { getDeviceActions, getDeviceOptions } from './assets/js/api.js';
 
 if (requireAuth()) {
+  const filterMarkup = document.getElementById('historyFiltersTemplate').innerHTML;
   const content = initLayout('history');
+  const deviceOptions = await getDeviceOptions().catch((error) => {
+    toast(error.message, 'error');
+    return [{ target: '', name: 'Tất cả thiết bị' }];
+  });
 
   const RESULT_BADGE = {
     Success: 'success',
@@ -33,13 +65,11 @@ if (requireAuth()) {
     Pending: 'muted',
   };
 
-  const filters = { target: '', action: '', result: '', from: '', to: '' };
+  const filters = { target: '', action: '', result: '', q: '' };
   let page = 1;
-  const perPage = 20;
+  let sort = 'timestamp:desc';
+  const perPage = 5;
   let result = { items: [], page: 1, total: 0, totalPages: 1 };
-
-  const startOfDay = (value) => (value ? new Date(`${value}T00:00:00`).toISOString() : undefined);
-  const endOfDay = (value) => (value ? new Date(`${value}T23:59:59.999`).toISOString() : undefined);
 
   async function fetchPage() {
     try {
@@ -47,10 +77,10 @@ if (requireAuth()) {
         target: filters.target,
         action: filters.action,
         result: filters.result,
-        from: startOfDay(filters.from),
-        to: endOfDay(filters.to),
+        q: filters.q,
         page,
         size: perPage,
+        sort,
       });
     } catch (error) {
       result = { items: [], page: 1, total: 0, totalPages: 1, error: error.message };
@@ -59,36 +89,17 @@ if (requireAuth()) {
   }
 
   function filterBarHtml() {
-    return `
-      <div class="filter-bar">
-        <select class="select" id="targetFilter" aria-label="Lọc theo thiết bị">
-          <option value="">Tất cả thiết bị</option>
-          <option value="led">Đèn đỏ</option>
-          <option value="fan">Đèn xanh</option>
-          <option value="ac">Đèn vàng</option>
-        </select>
-        <select class="select" id="actionFilter" aria-label="Lọc theo hành động">
-          <option value="">Tất cả hành động</option>
-          <option value="ON">Bật</option>
-          <option value="OFF">Tắt</option>
-        </select>
-        <select class="select" id="resultFilter" aria-label="Lọc theo kết quả">
-          <option value="">Tất cả kết quả</option>
-          <option value="Success">Thành công</option>
-          <option value="Failed">Thất bại</option>
-          <option value="Timeout">Quá hạn</option>
-          <option value="Pending">Đang xử lý</option>
-        </select>
-        <input class="input" type="date" id="fromDate" aria-label="Từ ngày">
-        <input class="input" type="date" id="toDate" aria-label="Đến ngày">
-        <button type="button" class="btn btn--secondary" id="resetFilter">Đặt lại</button>
-      </div>`;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = filterMarkup;
+    const select = wrapper.querySelector('#targetFilter');
+    deviceOptions.forEach((option) => select.add(new Option(option.name, option.target)));
+    return wrapper.innerHTML;
   }
 
   function rowsHtml() {
     return result.items.map((record) => {
       const who = record.issued_by?.full_name ?? '— (thiết bị tự đổi)';
-      const note = record.error_msg
+       const note = record.error_msg
         ? `<div class="text-muted" style="font-size:var(--text-xs);margin-top:2px">${escapeHtml(record.error_msg)}</div>`
         : '';
       return `
@@ -99,7 +110,7 @@ if (requireAuth()) {
           <td>${badge(record.action === 'ON' ? 'success' : 'muted', record.action === 'ON' ? 'Bật' : 'Tắt')}</td>
           <td>${escapeHtml(who)}</td>
           <td>${badge(RESULT_BADGE[record.result] ?? 'muted', record.result)}${note}</td>
-          <td><span class="mono text-secondary" style="font-size:var(--text-sm)">${formatTime(record.timestamp)}</span></td>
+          <td><span class="mono text-secondary" style="font-size:var(--text-sm)">${formatDateTime(record.timestamp)}</span></td>
         </tr>`;
     }).join('');
   }
@@ -119,7 +130,7 @@ if (requireAuth()) {
         emptyState('🔍', 'Không có thao tác nào', 'Chưa có lịch sử thao tác để hiển thị.')}</td></tr>`}</tbody>
     </table>`;
 
-    return `<div class="card card--table">${body}${
+    return `<div class="card card--table"><div class="history-table-scroll" tabindex="0" aria-label="Danh sách lịch sử thao tác">${body}</div>${
       pagination({ page: result.page, perPage, total: result.total })}</div>`;
   }
 
@@ -140,24 +151,26 @@ if (requireAuth()) {
       <div id="tableWrap"></div>
     </div>`;
 
-  const onFilterChange = (key, id) => {
-    document.getElementById(id).addEventListener('change', (event) => {
-      filters[key] = event.target.value;
-      page = 1;
-      renderTable();
-    });
+  const search = document.getElementById('searchInput');
+
+  const apply = () => {
+    filters.q = search.value.trim();
+    filters.target = document.getElementById('targetFilter').value;
+    filters.action = document.getElementById('actionFilter').value;
+    filters.result = document.getElementById('resultFilter').value;
+    page = 1;
+    renderTable();
   };
 
-  onFilterChange('target', 'targetFilter');
-  onFilterChange('action', 'actionFilter');
-  onFilterChange('result', 'resultFilter');
-  onFilterChange('from', 'fromDate');
-  onFilterChange('to', 'toDate');
+  document.getElementById('applyFilter').addEventListener('click', apply);
+  search.addEventListener('keydown', (event) => { if (event.key === 'Enter') apply(); });
+  // Dấu × của <input type="search"> cũng phải tải lại danh sách.
+  search.addEventListener('search', apply);
+  ['targetFilter', 'actionFilter', 'resultFilter']
+    .forEach((id) => document.getElementById(id).addEventListener('change', apply));
 
-  document.getElementById('resetFilter').addEventListener('click', () => {
-    Object.assign(filters, { target: '', action: '', result: '', from: '', to: '' });
-    ['targetFilter', 'actionFilter', 'resultFilter', 'fromDate', 'toDate']
-      .forEach((id) => { document.getElementById(id).value = ''; });
+  document.getElementById('sortFilter').addEventListener('change', (event) => {
+    sort = event.target.value;
     page = 1;
     renderTable();
   });

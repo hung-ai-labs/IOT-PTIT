@@ -1,5 +1,7 @@
 # 03 — Đặc tả API (`/api/v1`)
 
+Backend hiện tại: Spring Boot (07/10/2026), giữ đường dẫn và JSON của FastAPI cũ. Xem [08-SPRING-BOOT-MIGRATION.md](08-SPRING-BOOT-MIGRATION.md).
+
 Bám sát SRS §4.3. Mục ➕ là bổ sung cần thiết (không mâu thuẫn SRS).
 
 ## 1. Quy ước chung
@@ -51,7 +53,7 @@ nhưng bảng `users` (SRS §4.2.1) không có cột `username` — xem `07-OPEN
 | Method | Path | Mô tả |
 |---|---|---|
 | GET | `/sensors/latest` | Giá trị mới nhất mỗi loại. Query: `device_id`. → `{device_id, temperature:{value,unit,timestamp}, humidity, light}` — loại chưa có dữ liệu trả `null` |
-| GET | `/sensors` | Tra cứu lịch sử, có phân trang. Query: `device_id, sensor_type, from, to, page, size, sort` |
+| GET | `/sensors` | Tra cứu lịch sử, có phân trang. Query: `device_id, sensor_type, q, field, from, to, page, size, sort` |
 | GET | `/sensors/series` ➕ | Dữ liệu cho biểu đồ Dashboard. Query: `device_id, from, to, bucket=1m\|5m\|1h, points` |
 
 **`GET /sensors`** trả `Page[SensorRecordOut]`:
@@ -66,6 +68,12 @@ Loại cảm biến · Giá trị · Đơn vị · Thời gian). Xem OQ-15 về 
 - `sensor_type`: `temperature` | `humidity` | `light` (sai giá trị → 422)
 - `sort`: `<trường>:<asc|desc>`, trường hợp lệ `id, device_id, sensor_type, value, timestamp`
 - `size`: 1–100 (mặc định 20) · `page`: từ 1
+- `q`: ô tìm kiếm tự do của màn S4. Người dùng gõ **đúng chuỗi họ nhìn thấy trên bảng**,
+  nên server so khớp trên bản đã định dạng theo giờ `Asia/Ho_Chi_Minh`
+  (`DD/MM/YYYY HH24:MI:SS`) — gõ `16:25`, `07/10/2026` hay `07/10/2026 16:25` đều ra kết quả.
+- `field`: phạm vi của `q` — bỏ trống (tìm cả thời gian, giá trị và `device_id`), `time`,
+  hoặc một loại cảm biến. Chọn một loại cảm biến vừa lọc `sensor_type`, vừa đổi ý nghĩa
+  của `q` thành "giá trị đo". Giá trị lạ → 422.
 
 **`GET /sensors/series`** trả mảng điểm đã gom nhóm, tránh đổ hàng chục nghìn điểm vào Chart.js:
 ```json
@@ -85,23 +93,29 @@ encode sẽ bị hiểu thành dấu cách và API trả 422. Dùng `URLSearchPa
 | Method | Path | Mô tả |
 |---|---|---|
 | GET | `/devices` | Danh sách 3 thiết bị chấp hành + trạng thái |
-| GET | `/devices/{device_id}` | Chi tiết ESP + các target của nó (F10) |
+| GET | `/devices/{device_id}/targets/{target}` | Chi tiết đúng một đèn trên ESP (F10) |
 | POST | `/devices/{device_id}/actions` | Gửi lệnh. Body `{target, action}` → **202** |
 
 `GET /devices` trả mảng:
 ```json
-[{"device_id":"ESP32-01","target":"fan","name":"Quạt","gpio":"GPIO 26","icon":"🌀",
+[{"device_id":"ESP32-01","target":"green","name":"Đèn xanh","gpio":"GPIO 26","icon":"💡",
   "state":"ON","connection":"online",
   "last_command":"2026-09-09T09:15:47+07:00","last_seen":"2026-09-09T09:16:01+07:00"}]
 ```
 
-`GET /devices/{device_id}` bổ sung `ip`, `rssi`, `uptime`, `command_topic`, `feedback_topic`
-và mảng `targets`.
+`GET /devices/ESP32-01/targets/red` trả một đối tượng đèn đỏ với các trường
+giống một phần tử của danh sách, bổ sung `ip`, `rssi`, `uptime`, `command_topic`,
+`feedback_topic`; không có mảng `targets`. Target nhận `red`, `green`, `yellow`;
+target không tồn tại trả **404 TARGET_NOT_FOUND**. ESP chưa được ghi nhận trả
+`offline`, metadata kết nối có thể `null`, như API danh sách.
+
+Đường dẫn cũ `GET /devices/{device_id}` chỉ giữ để tương thích, trả thông tin ESP
+kèm `targets`; không hiển thị trong Swagger và frontend không còn gọi đường dẫn này.
 
 `POST /devices/{device_id}/actions` → **202 Accepted**, **không chờ thiết bị**:
 ```json
 {"action_id":127,"cmd_id":"3f1a…","device_id":"ESP32-01",
- "target":"fan","action":"OFF","result":"Pending","timeout_seconds":5.0}
+ "target":"green","action":"OFF","result":"Pending","timeout_seconds":5.0}
 ```
 
 Điều kiện chặn (F13) — kiểm tra **trước** khi ghi bản ghi nào:
@@ -118,12 +132,16 @@ và mảng `targets`.
 
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/device-actions` | Query: `device_id, target, action, result, from, to, page, size, sort` |
+| GET | `/device-actions` | Query: `device_id, target, action, result, q, from, to, page, size, sort` |
+
+- `q`: chỉ tìm theo thời gian hiển thị tại Việt Nam, ví dụ `16:53`, `16:53:49`
+  hoặc `07/10/2026 16:53`. Thiết bị, hành động và kết quả lọc riêng qua
+  `target`, `action`, `result`.
 | GET | `/device-actions/{action_id}` ➕ | Trạng thái một lệnh — frontend poll trong lúc chờ |
 
 Trả `Page[DeviceActionOut]`; mỗi item:
 ```json
-{"id":127,"device_id":"ESP32-01","target":"fan","target_label":"Quạt","action":"OFF",
+{"id":127,"device_id":"ESP32-01","target":"green","target_label":"Đèn xanh","action":"OFF",
  "issued_by":{"id":5,"full_name":"Nguyễn Xuân Hùng"},"result":"Success",
  "timestamp":"…","responded_at":"…","error_msg":null}
 ```
@@ -178,7 +196,7 @@ Kết nối: `ws://host/ws?token=<JWT>`. Server đẩy:
 
 ```json
 {"type":"sensor",       "data":{"device_id":"esp32-01","temperature":27.5,"humidity":68,"light":420,"timestamp":"..."}}
-{"type":"device_state", "data":{"device_id":"esp32-01","target":"fan","state":"ON","action_id":12,"result":"Success"}}
+{"type":"device_state", "data":{"device_id":"esp32-01","target":"green","state":"ON","action_id":12,"result":"Success"}}
 {"type":"system_status","data":{ ... giống §7 ... }}
 ```
 

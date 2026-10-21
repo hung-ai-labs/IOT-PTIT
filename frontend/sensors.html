@@ -12,6 +12,28 @@
   <link rel="stylesheet" href="assets/css/pages.css">
 </head>
 <body>
+  <!-- Add options inside a select, or add an input directly in this filter bar. -->
+  <template id="sensorFiltersTemplate">
+    <div class="filter-bar">
+      <input class="input filter-bar__search" type="search" id="searchInput"
+             placeholder="Nhập ngày hoặc giờ cần tìm…" aria-label="Từ khoá tìm kiếm">
+      <select class="select" id="fieldFilter" aria-label="Tìm trong">
+        <option value="">Tất cả thông tin</option>
+        <option value="time">Thời gian</option>
+        <option value="temperature">Nhiệt độ</option>
+        <option value="humidity">Độ ẩm</option>
+        <option value="light">Ánh sáng</option>
+      </select>
+      <button type="button" class="btn btn--primary" id="applyFilter">Tìm</button>
+      <select class="select" id="sortFilter" aria-label="Sắp xếp">
+        <option value="timestamp:desc">Sắp xếp: Mới nhất</option>
+        <option value="timestamp:asc">Sắp xếp: Cũ nhất</option>
+        <option value="value:desc">Sắp xếp: Giá trị cao nhất</option>
+        <option value="value:asc">Sắp xếp: Giá trị thấp nhất</option>
+      </select>
+      <div class="filter-bar__hint">Định dạng thời gian: HH:mm, HH:mm:ss hoặc DD/MM/YYYY HH:mm</div>
+    </div>
+  </template>
   <script type="module">
 // sensors.js — S4 Dữ liệu cảm biến (SRS Hình 3.4)
 //
@@ -22,9 +44,10 @@ import { requireAuth } from './assets/js/auth.js';
 import { initLayout } from './assets/js/layout.js';
 import { badge, emptyState, pagination, bindPagination, detailRow, openLayerWith, toast } from './assets/js/ui.js';
 import { escapeHtml, formatDateTime } from './assets/js/format.js';
-import { getSensorRecords, getSensorDevices } from './assets/js/api.js';
+import { getSensorRecords } from './assets/js/api.js';
 
 if (requireAuth()) {
+  const filterMarkup = document.getElementById('sensorFiltersTemplate').innerHTML;
   const content = initLayout('sensors');
 
   const PER_PAGE_OPTIONS = [10, 25, 50];
@@ -44,24 +67,19 @@ if (requireAuth()) {
     { key: 'timestamp', label: 'Thời gian' },
   ];
 
-  const filters = { deviceId: '', sensorType: '', from: '', to: '' };
+  // `field` vừa là phạm vi tìm kiếm, vừa là bộ lọc loại cảm biến — xem SensorService.
+  const filters = { q: '', field: '' };
   let sortKey = 'timestamp';
   let sortDir = 'desc';
   let page = 1;
   let perPage = 10;
   let result = { items: [], page: 1, size: perPage, total: 0, totalPages: 1 };
 
-  /* ─── Chuyển giá trị của <input type="date"> sang ISO ───── */
-  const startOfDay = (value) => (value ? new Date(`${value}T00:00:00`).toISOString() : undefined);
-  const endOfDay = (value) => (value ? new Date(`${value}T23:59:59.999`).toISOString() : undefined);
-
   async function fetchPage() {
     try {
       result = await getSensorRecords({
-        deviceId: filters.deviceId,
-        sensorType: filters.sensorType,
-        from: startOfDay(filters.from),
-        to: endOfDay(filters.to),
+        q: filters.q,
+        field: filters.field,
         page,
         size: perPage,
         sort: `${sortKey}:${sortDir}`,
@@ -73,28 +91,6 @@ if (requireAuth()) {
   }
 
   /* ─── Giao diện ────────────────────────────────────────── */
-  function filterBarHtml(devices) {
-    const deviceOptions = ['<option value="">Tất cả thiết bị</option>']
-      .concat(devices.map((id) =>
-        `<option value="${escapeHtml(id)}"${id === filters.deviceId ? ' selected' : ''}>${escapeHtml(id)}</option>`))
-      .join('');
-
-    return `
-      <div class="filter-bar">
-        <select class="select" id="deviceFilter" aria-label="Lọc theo thiết bị">${deviceOptions}</select>
-        <select class="select" id="typeFilter" aria-label="Lọc theo loại cảm biến">
-          <option value="">Tất cả loại</option>
-          <option value="temperature">Nhiệt độ</option>
-          <option value="humidity">Độ ẩm</option>
-          <option value="light">Ánh sáng</option>
-        </select>
-        <input class="input" type="date" id="fromDate" aria-label="Từ ngày">
-        <input class="input" type="date" id="toDate" aria-label="Đến ngày">
-        <button type="button" class="btn btn--primary" id="applyFilter">Lọc</button>
-        <button type="button" class="btn btn--secondary" id="resetFilter">Đặt lại</button>
-      </div>`;
-  }
-
   function headHtml() {
     return COLUMNS.map((column) => {
       if (!column.key) return `<th>${column.label}</th>`;
@@ -192,6 +188,7 @@ if (requireAuth()) {
         if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
         else { sortKey = key; sortDir = 'desc'; }
         page = 1;
+        syncSortSelect();
         renderTable();
       });
     });
@@ -212,38 +209,47 @@ if (requireAuth()) {
     });
   }
 
+  /* Nhấn tiêu đề cột có thể tạo ra kiểu sắp xếp không có sẵn trong ô chọn —
+     thêm tạm một mục để ô chọn luôn nói đúng trạng thái hiện tại. */
+  function syncSortSelect() {
+    const select = document.getElementById('sortFilter');
+    if (!select) return;
+    const value = `${sortKey}:${sortDir}`;
+    if (![...select.options].some((option) => option.value === value)) {
+      const label = COLUMNS.find((column) => column.key === sortKey)?.label ?? sortKey;
+      select.add(new Option(`Sắp xếp: ${label} ${sortDir === 'asc' ? '↑' : '↓'}`, value));
+    }
+    select.value = value;
+  }
+
   function bindFilterBar() {
+    const search = document.getElementById('searchInput');
+    const field = document.getElementById('fieldFilter');
+    const sort = document.getElementById('sortFilter');
+
     const apply = () => {
-      filters.deviceId = document.getElementById('deviceFilter').value;
-      filters.sensorType = document.getElementById('typeFilter').value;
-      filters.from = document.getElementById('fromDate').value;
-      filters.to = document.getElementById('toDate').value;
+      filters.q = search.value.trim();
+      filters.field = field.value;
       page = 1;
       renderTable();
     };
 
     document.getElementById('applyFilter').addEventListener('click', apply);
-    document.getElementById('deviceFilter').addEventListener('change', apply);
-    document.getElementById('typeFilter').addEventListener('change', apply);
+    search.addEventListener('keydown', (event) => { if (event.key === 'Enter') apply(); });
+    // Dấu × của <input type="search"> cũng phải tải lại danh sách.
+    search.addEventListener('search', apply);
+    field.addEventListener('change', apply);
 
-    document.getElementById('resetFilter').addEventListener('click', () => {
-      Object.assign(filters, { deviceId: '', sensorType: '', from: '', to: '' });
-      document.getElementById('deviceFilter').value = '';
-      document.getElementById('typeFilter').value = '';
-      document.getElementById('fromDate').value = '';
-      document.getElementById('toDate').value = '';
-      sortKey = 'timestamp';
-      sortDir = 'desc';
+    sort.addEventListener('change', () => {
+      [sortKey, sortDir] = sort.value.split(':');
       page = 1;
       renderTable();
     });
   }
 
-  const devices = await getSensorDevices().catch(() => []);
-
   content.innerHTML = `
     <div class="page page--tight">
-      ${filterBarHtml(devices)}
+      ${filterMarkup}
       <div id="tableWrap"></div>
     </div>`;
 

@@ -33,3 +33,6 @@ graphify-out/
 .env.*
 !.env.example
 *.sqlite
+
+# Maven build output
+**/target/

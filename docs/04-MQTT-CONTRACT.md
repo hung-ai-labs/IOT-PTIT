@@ -40,13 +40,14 @@ chữ thường, có namespace). Bộ Chương 2 chỉ là tên tạm khi test t
 {
   "cmd_id": "3f1a...uuid",
   "device_id": "esp32-01",
-  "target": "fan",
+  "target": "green",
   "action": "ON",
   "issued_at": "2026-09-09T10:12:05Z"
 }
 ```
-- Tên hiển thị (07/10/2026): `led` = Đèn đỏ, `fan` = Đèn xanh, `ac` = Đèn vàng; giữ mã MQTT cũ để tương thích.
-- `target`: `led` | `fan` | `ac` · `action`: `ON` | `OFF` | `STATUS`
+- Mã thiết bị (07/10/2026): `red` = Đèn đỏ, `green` = Đèn xanh, `yellow` = Đèn vàng.
+  Mã cũ `led`/`fan`/`ac` đã đổi hẳn ở migration `V3__rename_device_targets.sql` — **không còn được chấp nhận**.
+- `target`: `red` | `green` | `yellow` · `action`: `ON` | `OFF` | `STATUS`
 - `STATUS` = yêu cầu ESP báo lại trạng thái hiện tại (dùng khi server khởi động lại).
 
 ### 2.3 `iot/feedback`
@@ -54,7 +55,7 @@ chữ thường, có namespace). Bộ Chương 2 chỉ là tên tạm khi test t
 {
   "cmd_id": "3f1a...uuid",
   "device_id": "esp32-01",
-  "target": "fan",
+  "target": "green",
   "state": "ON",
   "result": "Success",
   "error": null,
@@ -109,11 +110,11 @@ mosquitto_sub -h localhost -p 1883 -t "iot/control" -v
 
 # T3 — gửi lệnh
 mosquitto_pub -h localhost -p 1883 -t "iot/control" \
-  -m '{"cmd_id":"test-1","device_id":"esp32-01","target":"led","action":"ON"}'
+  -m '{"cmd_id":"test-1","device_id":"esp32-01","target":"red","action":"ON"}'
 
 # T1 — Hardware phản hồi
 mosquitto_pub -h localhost -p 1883 -t "iot/feedback" \
-  -m '{"cmd_id":"test-1","device_id":"esp32-01","target":"led","state":"ON","result":"Success"}'
+  -m '{"cmd_id":"test-1","device_id":"esp32-01","target":"red","state":"ON","result":"Success"}'
 ```
 
 `scripts/mock_device.py` tự động hoá toàn bộ luồng trên (publish sensor định kỳ,
